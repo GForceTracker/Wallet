@@ -1,10 +1,13 @@
 import os
 from contextlib import asynccontextmanager
 from datetime import date
+from pathlib import Path
 from typing import List
 
 from fastapi import Depends, FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
 from sqlalchemy.orm import Session
 
 from database import Base, engine, get_db
@@ -190,6 +193,26 @@ def update_settings(data: SettingsUpdate, db: Session = Depends(get_db)):
     db.commit()
     db.refresh(s)
     return s
+
+
+# ── Static / SPA fallback ─────────────────────────────────────────────────────
+# Present when running from the Docker image (./static is copied in by the
+# multi-stage build).  Skipped in local dev (no ./static dir).
+_static_dir = Path(__file__).parent / "static"
+
+if _static_dir.is_dir():
+    # Serve Vite's hashed JS/CSS chunks
+    _assets_dir = _static_dir / "assets"
+    if _assets_dir.is_dir():
+        app.mount("/assets", StaticFiles(directory=str(_assets_dir)), name="assets")
+
+    @app.get("/{full_path:path}", include_in_schema=False)
+    async def spa_fallback(full_path: str):
+        """Serve the file if it exists; otherwise return index.html for SPA routing."""
+        target = _static_dir / full_path
+        if target.is_file():
+            return FileResponse(str(target))
+        return FileResponse(str(_static_dir / "index.html"))
 
 
 if __name__ == "__main__":

@@ -15,12 +15,14 @@ services:
       timeout: 5s
       retries: 5
 
-  # ── Python FastAPI backend ───────────────────────────────────────────────────
-  api:
+  # ── Single container: Python API + bundled React frontend ─────────────────────
+  app:
     build:
-      context: ./artifacts/python-api
+      context: .
       dockerfile: Dockerfile
     restart: unless-stopped
+    ports:
+      - "8000:8000"
     environment:
       DATABASE_URL: postgresql://wallet:wallet@db:5432/wallet
       PORT: 8000
@@ -32,18 +34,6 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
-
-  # ── React frontend (served via nginx with API proxy) ─────────────────────────
-  frontend:
-    build:
-      context: .
-      dockerfile: Dockerfile.frontend
-    restart: unless-stopped
-    ports:
-      - "80:80"
-    depends_on:
-      api:
-        condition: service_healthy
 
 volumes:
   pgdata:

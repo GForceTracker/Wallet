@@ -1,10 +1,9 @@
 services:
-  # ── Python FastAPI backend ───────────────────────────────────────────────────
+  # Single Docker service — Python serves both the API and the React frontend
   - type: web
-    name: crypto-wallet-api
+    name: crypto-wallet
     runtime: docker
-    dockerfilePath: artifacts/python-api/Dockerfile
-    dockerContext: artifacts/python-api
+    # Render picks up ./Dockerfile at repo root automatically
     envVars:
       - key: DATABASE_URL
         fromDatabase:
@@ -12,22 +11,6 @@ services:
           property: connectionString
       - key: PORT
         value: 8000
-
-  # ── React frontend (static site) ────────────────────────────────────────────
-  - type: web
-    name: crypto-wallet-frontend
-    runtime: static
-    buildCommand: npm install -g pnpm@9 && pnpm install --frozen-lockfile && pnpm --filter @workspace/crypto-wallet run build
-    staticPublishPath: artifacts/crypto-wallet/dist/public
-    envVars:
-      - key: BASE_PATH
-        value: /
-      - key: PORT
-        value: 3000
-      # Set this to your deployed API URL, e.g. https://crypto-wallet-api.onrender.com
-      # Leave blank to use the relative /api path (only works when frontend + API share the same domain)
-      - key: VITE_API_URL
-        value: ""
 
 databases:
   - name: crypto-wallet-db
