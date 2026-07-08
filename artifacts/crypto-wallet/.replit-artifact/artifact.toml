@@ -1,0 +1,27 @@
+kind = "web"
+previewPath = "/"
+title = "Crypto Wallet"
+version = "1.0.0"
+id = "artifacts/crypto-wallet"
+router = "path"
+
+[[services]]
+name = "web"
+paths = [ "/" ]
+localPort = 18624
+
+[services.development]
+run = "pnpm --filter @workspace/crypto-wallet run dev"
+
+[services.production]
+build = [ "pnpm", "--filter", "@workspace/crypto-wallet", "run", "build" ]
+serve = "static"
+publicDir = "artifacts/crypto-wallet/dist/public"
+
+[[services.production.rewrites]]
+from = "/*"
+to = "/index.html"
+
+[services.env]
+PORT = "18624"
+BASE_PATH = "/"
