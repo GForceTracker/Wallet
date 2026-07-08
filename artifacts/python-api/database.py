@@ -12,10 +12,14 @@ if DATABASE_URL.startswith("sqlite"):
     connect_args = {"check_same_thread": False}
     engine = create_engine(DATABASE_URL, connect_args=connect_args)
 else:
-    # Replit's built-in PostgreSQL runs locally and doesn't need SSL.
-    # External managed hosts (Render, Aiven) include sslmode in their URL.
+    # Managed PostgreSQL hosts (Render, Northflank, Aiven, etc.) require SSL.
+    # Only inject sslmode when the URL doesn't already specify it.
+    connect_args: dict = {}
+    if "sslmode" not in DATABASE_URL:
+        connect_args["sslmode"] = "require"
     engine = create_engine(
         DATABASE_URL,
+        connect_args=connect_args,
         pool_pre_ping=True,   # detect stale connections and reconnect
         pool_recycle=300,     # recycle connections every 5 min
     )
