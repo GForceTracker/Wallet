@@ -201,18 +201,31 @@ def update_settings(data: SettingsUpdate, db: Session = Depends(get_db)):
 _static_dir = Path(__file__).parent / "static"
 
 if _static_dir.is_dir():
-    # Serve Vite's hashed JS/CSS chunks
-    _assets_dir = _static_dir / "assets"
-    if _assets_dir.is_dir():
-        app.mount("/assets", StaticFiles(directory=str(_assets_dir)), name="assets")
+    # Serve the entire static tree (JS, CSS, images, fonts …).
+    # StaticFiles guesses Content-Type from the file extension using its own
+    # internal table, so it always returns the right type even on slim images
+    # that lack /etc/mime.types.
+    app.mount("/static-files", StaticFiles(directory=str(_static_dir)), name="static-files")
+
+    def _serve_index() -> FileResponse:
+        """Return index.html with an explicit HTML content-type."""
+        return FileResponse(
+            str(_static_dir / "index.html"),
+            media_type="text/html",
+        )
+
+    @app.get("/", include_in_schema=False)
+    async def spa_root():
+        return _serve_index()
 
     @app.get("/{full_path:path}", include_in_schema=False)
     async def spa_fallback(full_path: str):
         """Serve the file if it exists; otherwise return index.html for SPA routing."""
         target = _static_dir / full_path
         if target.is_file():
+            # Let Starlette pick the MIME type from the extension.
             return FileResponse(str(target))
-        return FileResponse(str(_static_dir / "index.html"))
+        return _serve_index()
 
 
 if __name__ == "__main__":
