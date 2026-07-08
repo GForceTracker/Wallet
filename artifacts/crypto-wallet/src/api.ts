@@ -1,6 +1,8 @@
-// Base URL: in dev, Vite proxies /api → http://localhost:8000
-// In Docker, nginx proxies /api → http://api:8000
-const BASE = "/api";
+// Base URL resolution:
+//   Local dev  → Vite proxy forwards /api to http://localhost:8000
+//   Docker     → nginx proxies /api to the Python container
+//   Render     → set VITE_API_URL=https://your-api.onrender.com at build time
+const BASE = (import.meta.env.VITE_API_URL as string | undefined)?.replace(/\/$/, "") ?? "/api";
 
 async function req<T>(path: string, options?: RequestInit): Promise<T> {
   const res = await fetch(`${BASE}${path}`, {
