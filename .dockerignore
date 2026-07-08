@@ -6,4 +6,5 @@ node_modules
 *.log
 dist
 .cache
-artifacts/mockup-sandbox
+artifacts/mockup-sandbox/**
+!artifacts/mockup-sandbox/package.json
