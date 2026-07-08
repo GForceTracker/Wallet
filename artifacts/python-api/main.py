@@ -1,13 +1,17 @@
+import asyncio
 import os
+import time
 from contextlib import asynccontextmanager
 from datetime import date
 from pathlib import Path
-from typing import List
+from typing import List, Optional
 
+import httpx
 from fastapi import Depends, FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
+from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from database import Base, engine, get_db
@@ -20,6 +24,68 @@ from schemas import (
     WalletResponse,
     WalletUpdate,
 )
+
+# ── Price cache (in-memory, refreshed every 5 minutes) ───────────────────────
+_price_cache: dict = {}
+_price_cache_ts: float = 0.0
+PRICE_CACHE_TTL = 300  # seconds
+
+
+async def fetch_live_prices() -> Optional[dict]:
+    """Fetch real-time prices from CoinGecko. Returns None on failure."""
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            r = await client.get(
+                "https://api.coingecko.com/api/v3/simple/price",
+                params={"ids": "bitcoin,ethereum,tether", "vs_currencies": "usd"},
+            )
+            r.raise_for_status()
+            data = r.json()
+            return {
+                "btc_price": float(data["bitcoin"]["usd"]),
+                "eth_price": float(data["ethereum"]["usd"]),
+                "usdt_price": float(data["tether"]["usd"]),
+            }
+    except Exception:
+        return None
+
+
+async def price_refresh_loop():
+    """Background task: refresh prices every 5 minutes."""
+    global _price_cache, _price_cache_ts
+    while True:
+        prices = await fetch_live_prices()
+        if prices:
+            _price_cache = prices
+            _price_cache_ts = time.time()
+            # Persist to DB so they survive cache resets
+            db = next(get_db())
+            try:
+                s = db.query(Settings).first()
+                if s:
+                    s.btc_price = prices["btc_price"]
+                    s.eth_price = prices["eth_price"]
+                    s.usdt_price = prices["usdt_price"]
+                    db.commit()
+            finally:
+                db.close()
+        await asyncio.sleep(PRICE_CACHE_TTL)
+
+
+def _migrate_settings_columns():
+    """Add new Settings columns that may not exist in older DB files."""
+    new_cols = [
+        "ALTER TABLE settings ADD COLUMN deposit_address_btc TEXT",
+        "ALTER TABLE settings ADD COLUMN deposit_address_eth TEXT",
+        "ALTER TABLE settings ADD COLUMN deposit_address_usdt TEXT",
+    ]
+    with engine.connect() as conn:
+        for ddl in new_cols:
+            try:
+                conn.execute(text(ddl))
+                conn.commit()
+            except Exception:
+                pass  # column already exists
 
 
 def seed_defaults(db: Session) -> None:
@@ -50,12 +116,32 @@ def seed_defaults(db: Session) -> None:
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     Base.metadata.create_all(bind=engine)
+    _migrate_settings_columns()
     db = next(get_db())
     try:
         seed_defaults(db)
     finally:
         db.close()
+
+    # Fetch live prices immediately on startup, then keep refreshing
+    prices = await fetch_live_prices()
+    if prices:
+        _price_cache.update(prices)
+        _price_cache_ts_val = time.time()
+        db2 = next(get_db())
+        try:
+            s = db2.query(Settings).first()
+            if s:
+                s.btc_price = prices["btc_price"]
+                s.eth_price = prices["eth_price"]
+                s.usdt_price = prices["usdt_price"]
+                db2.commit()
+        finally:
+            db2.close()
+
+    task = asyncio.create_task(price_refresh_loop())
     yield
+    task.cancel()
 
 
 app = FastAPI(title="Crypto Wallet API", version="1.0.0", lifespan=lifespan)
@@ -63,7 +149,7 @@ app = FastAPI(title="Crypto Wallet API", version="1.0.0", lifespan=lifespan)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
-    allow_credentials=False,  # must be False when allow_origins=["*"]
+    allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -106,7 +192,8 @@ def update_wallet(data: WalletUpdate, db: Session = Depends(get_db)):
             db.add(
                 Transaction(
                     asset=asset_name,
-                    type="Admin Deposit" if diff > 0 else "Admin Charge",
+                    # Admin top-ups show as "Deposit"; reductions as "Deduction"
+                    type="Deposit" if diff > 0 else "Deduction",
                     change=abs(diff),
                     date=today,
                 )
@@ -128,6 +215,13 @@ def get_transactions(db: Session = Depends(get_db)):
     return db.query(Transaction).order_by(Transaction.id).all()
 
 
+@app.delete("/api/transactions", status_code=204)
+def wipe_transactions(db: Session = Depends(get_db)):
+    """Admin: delete all transaction history."""
+    db.query(Transaction).delete()
+    db.commit()
+
+
 @app.post("/api/transactions", response_model=WalletResponse)
 def send_withdraw(data: TransactionCreate, db: Session = Depends(get_db)):
     wallet = db.query(Wallet).first()
@@ -146,23 +240,36 @@ def send_withdraw(data: TransactionCreate, db: Session = Depends(get_db)):
             status_code=400, detail=f"Insufficient {asset.upper()} balance"
         )
 
-    btc_after_send = wallet.btc - data.amount if asset == "btc" else wallet.btc
-    if btc_after_send < settings.gas_fee_btc:
-        raise HTTPException(
-            status_code=400,
-            detail=f"Insufficient BTC to cover network fee (${settings.gas_fee_usd:.2f})",
-        )
-
-    setattr(wallet, asset, current - data.amount)
-    wallet.btc -= settings.gas_fee_btc
+    # For BTC: ensure balance covers both the send amount AND gas fee
+    if asset == "btc":
+        if wallet.btc < data.amount + settings.gas_fee_btc:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Insufficient BTC to cover amount + network fee (${settings.gas_fee_usd:.2f})",
+            )
+    else:
+        # Non-BTC: BTC balance must cover gas fee separately
+        if wallet.btc < settings.gas_fee_btc:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Insufficient BTC to cover network fee (${settings.gas_fee_usd:.2f})",
+            )
 
     today = date.today().strftime("%m/%d/%Y")
-    db.add(Transaction(asset=asset, type="Withdrawal", change=data.amount, date=today))
+
+    # Gas fee is deducted FIRST, then the withdrawal amount.
+    # For BTC sends: both gas fee + send amount come from the same BTC balance,
+    # so we compute the final value in one expression to avoid double-counting.
     db.add(
-        Transaction(
-            asset="btc", type="Gas Fee", change=settings.gas_fee_btc, date=today
-        )
+        Transaction(asset="btc", type="Gas Fee", change=settings.gas_fee_btc, date=today)
     )
+    db.add(Transaction(asset=asset, type="Withdrawal", change=data.amount, date=today))
+
+    if asset == "btc":
+        wallet.btc = current - settings.gas_fee_btc - data.amount
+    else:
+        wallet.btc -= settings.gas_fee_btc
+        setattr(wallet, asset, current - data.amount)
 
     db.commit()
     db.refresh(wallet)
@@ -196,19 +303,12 @@ def update_settings(data: SettingsUpdate, db: Session = Depends(get_db)):
 
 
 # ── Static / SPA fallback ─────────────────────────────────────────────────────
-# Present when running from the Docker image (./static is copied in by the
-# multi-stage build).  Skipped in local dev (no ./static dir).
 _static_dir = Path(__file__).parent / "static"
 
 if _static_dir.is_dir():
-    # Serve the entire static tree (JS, CSS, images, fonts …).
-    # StaticFiles guesses Content-Type from the file extension using its own
-    # internal table, so it always returns the right type even on slim images
-    # that lack /etc/mime.types.
     app.mount("/static-files", StaticFiles(directory=str(_static_dir)), name="static-files")
 
     def _serve_index() -> FileResponse:
-        """Return index.html with an explicit HTML content-type."""
         return FileResponse(
             str(_static_dir / "index.html"),
             media_type="text/html",
@@ -220,10 +320,8 @@ if _static_dir.is_dir():
 
     @app.get("/{full_path:path}", include_in_schema=False)
     async def spa_fallback(full_path: str):
-        """Serve the file if it exists; otherwise return index.html for SPA routing."""
         target = _static_dir / full_path
         if target.is_file():
-            # Let Starlette pick the MIME type from the extension.
             return FileResponse(str(target))
         return _serve_index()
 

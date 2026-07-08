@@ -13,6 +13,8 @@ async function req<T>(path: string, options?: RequestInit): Promise<T> {
     const body = await res.json().catch(() => ({ detail: res.statusText }));
     throw new Error(body.detail ?? "Request failed");
   }
+  // 204 No Content
+  if (res.status === 204) return undefined as unknown as T;
   return res.json() as Promise<T>;
 }
 
@@ -31,11 +33,15 @@ export interface TransactionData {
 }
 
 export interface SettingsData {
+  id?: number;
   gas_fee_usd: number;
   gas_fee_btc: number;
   btc_price: number;
   eth_price: number;
   usdt_price: number;
+  deposit_address_btc?: string | null;
+  deposit_address_eth?: string | null;
+  deposit_address_usdt?: string | null;
 }
 
 export const api = {
@@ -45,6 +51,9 @@ export const api = {
     req<WalletData>("/wallet", { method: "PUT", body: JSON.stringify(data) }),
 
   getTransactions: () => req<TransactionData[]>("/transactions"),
+
+  deleteAllTransactions: () =>
+    req<void>("/transactions", { method: "DELETE" }),
 
   sendWithdraw: (asset: string, amount: number, address: string) =>
     req<WalletData>("/transactions", {

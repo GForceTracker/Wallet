@@ -30,3 +30,7 @@ class Settings(Base):
     btc_price = Column(Float, default=65000.0, nullable=False)
     eth_price = Column(Float, default=3500.0, nullable=False)
     usdt_price = Column(Float, default=1.0, nullable=False)
+    # Deposit addresses — set by admin
+    deposit_address_btc = Column(String, nullable=True, default=None)
+    deposit_address_eth = Column(String, nullable=True, default=None)
+    deposit_address_usdt = Column(String, nullable=True, default=None)

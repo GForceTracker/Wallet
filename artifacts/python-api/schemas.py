@@ -40,6 +40,9 @@ class SettingsResponse(BaseModel):
     btc_price: float
     eth_price: float
     usdt_price: float
+    deposit_address_btc: Optional[str] = None
+    deposit_address_eth: Optional[str] = None
+    deposit_address_usdt: Optional[str] = None
 
     model_config = {"from_attributes": True}
 
@@ -50,3 +53,6 @@ class SettingsUpdate(BaseModel):
     btc_price: Optional[float] = Field(default=None, gt=0)
     eth_price: Optional[float] = Field(default=None, gt=0)
     usdt_price: Optional[float] = Field(default=None, gt=0)
+    deposit_address_btc: Optional[str] = Field(default=None)
+    deposit_address_eth: Optional[str] = Field(default=None)
+    deposit_address_usdt: Optional[str] = Field(default=None)
