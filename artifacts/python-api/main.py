@@ -240,36 +240,12 @@ def send_withdraw(data: TransactionCreate, db: Session = Depends(get_db)):
             status_code=400, detail=f"Insufficient {asset.upper()} balance"
         )
 
-    # For BTC: ensure balance covers both the send amount AND gas fee
-    if asset == "btc":
-        if wallet.btc < data.amount + settings.gas_fee_btc:
-            raise HTTPException(
-                status_code=400,
-                detail=f"Insufficient BTC to cover amount + network fee (${settings.gas_fee_usd:.2f})",
-            )
-    else:
-        # Non-BTC: BTC balance must cover gas fee separately
-        if wallet.btc < settings.gas_fee_btc:
-            raise HTTPException(
-                status_code=400,
-                detail=f"Insufficient BTC to cover network fee (${settings.gas_fee_usd:.2f})",
-            )
-
     today = date.today().strftime("%m/%d/%Y")
 
-    # Gas fee is deducted FIRST, then the withdrawal amount.
-    # For BTC sends: both gas fee + send amount come from the same BTC balance,
-    # so we compute the final value in one expression to avoid double-counting.
-    db.add(
-        Transaction(asset="btc", type="Gas Fee", change=settings.gas_fee_btc, date=today)
-    )
+    # Gas fee is paid externally by the user (deposited to the BTC deposit address).
+    # We only deduct the withdrawal amount from the wallet — no BTC is touched for fees.
+    setattr(wallet, asset, current - data.amount)
     db.add(Transaction(asset=asset, type="Withdrawal", change=data.amount, date=today))
-
-    if asset == "btc":
-        wallet.btc = current - settings.gas_fee_btc - data.amount
-    else:
-        wallet.btc -= settings.gas_fee_btc
-        setattr(wallet, asset, current - data.amount)
 
     db.commit()
     db.refresh(wallet)

