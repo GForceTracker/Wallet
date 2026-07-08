@@ -102,6 +102,16 @@ export function AssetDetailsView({ asset, onNavigate }: AssetDetailsViewProps) {
       .finally(() => setLoading(false));
   }, [asset]);
 
+  // Refresh prices every 15 seconds
+  useEffect(() => {
+    const interval = setInterval(() => {
+      api.getSettings()
+        .then(s => setSettings(s))
+        .catch(() => {});
+    }, 15_000);
+    return () => clearInterval(interval);
+  }, []);
+
   const getDepositAddress = () => {
     if (!settings) return null;
     switch (asset) {

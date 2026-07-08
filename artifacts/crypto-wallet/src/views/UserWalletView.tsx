@@ -111,6 +111,16 @@ export function UserWalletView({ onNavigate, onLogout }: UserWalletViewProps) {
       .finally(() => setLoading(false));
   }, []);
 
+  // Refresh prices every 15 seconds
+  useEffect(() => {
+    const interval = setInterval(() => {
+      api.getSettings()
+        .then(s => setSettings(s))
+        .catch(() => {}); // silent — don't toast on background refresh
+    }, 15_000);
+    return () => clearInterval(interval);
+  }, []);
+
   if (loading || !wallet || !settings) {
     return (
       <div className="flex flex-col h-full items-center justify-center bg-background">

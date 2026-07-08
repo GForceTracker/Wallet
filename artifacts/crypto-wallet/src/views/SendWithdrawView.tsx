@@ -29,6 +29,16 @@ export function SendWithdrawView({ asset, onNavigate }: SendWithdrawViewProps) {
       .finally(() => setLoading(false));
   }, []);
 
+  // Refresh prices every 15 seconds
+  useEffect(() => {
+    const interval = setInterval(() => {
+      api.getSettings()
+        .then(s => setSettings(s))
+        .catch(() => {});
+    }, 15_000);
+    return () => clearInterval(interval);
+  }, []);
+
   if (loading || !wallet || !settings) {
     return (
       <div className="flex flex-col h-full items-center justify-center bg-background">

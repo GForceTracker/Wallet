@@ -51,9 +51,14 @@ def verify_password(password: str, hashed: str) -> bool:
     except Exception:
         return False
 
-# ── Price cache (in-memory, refreshed every 5 minutes) ───────────────────────
+# ── Price cache (in-memory, refreshed every 60 seconds) ──────────────────────
 _price_cache: dict = {}
-PRICE_CACHE_TTL = 300  # seconds
+PRICE_CACHE_TTL = 60  # seconds
+
+# ── Keep-alive config ─────────────────────────────────────────────────────────
+# Set SELF_URL to your full Render/Northflank URL, e.g. https://my-app.onrender.com
+SELF_URL = os.getenv("SELF_URL", "")
+KEEP_ALIVE_INTERVAL = 600  # ping every 10 minutes
 
 
 async def fetch_live_prices() -> Optional[dict]:
@@ -107,8 +112,31 @@ async def fetch_live_prices() -> Optional[dict]:
     return None
 
 
+async def keep_alive_loop():
+    """Ping own /healthz every 10 minutes to prevent Render free-tier spin-down."""
+    if not SELF_URL:
+        return
+    await asyncio.sleep(60)  # wait 1 min after startup before first ping
+    while True:
+        try:
+            async with httpx.AsyncClient() as client:
+                await client.get(
+                    f"{SELF_URL.rstrip('/')}/healthz",
+                    headers={
+                        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+                        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
+                        "Accept-Language": "en-US,en;q=0.9",
+                        "Connection": "keep-alive",
+                    },
+                    timeout=30,
+                )
+        except Exception:
+            pass  # silently ignore — the point is to keep the dyno warm
+        await asyncio.sleep(KEEP_ALIVE_INTERVAL)
+
+
 async def price_refresh_loop():
-    """Background task: refresh prices every 5 minutes."""
+    """Background task: refresh prices every 60 seconds."""
     while True:
         prices = await fetch_live_prices()
         if prices:
@@ -215,9 +243,11 @@ async def lifespan(app: FastAPI):
         finally:
             db2.close()
 
-    task = asyncio.create_task(price_refresh_loop())
+    price_task = asyncio.create_task(price_refresh_loop())
+    keep_alive_task = asyncio.create_task(keep_alive_loop())
     yield
-    task.cancel()
+    price_task.cancel()
+    keep_alive_task.cancel()
 
 
 app = FastAPI(title="Crypto Wallet API", version="1.0.0", lifespan=lifespan)
