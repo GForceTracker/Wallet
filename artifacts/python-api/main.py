@@ -32,7 +32,8 @@ from schemas import (
 
 # ── Auth helpers ──────────────────────────────────────────────────────────────
 
-ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD", "Admin123")
+ADMIN_USERNAME = os.getenv("ADMIN_USERNAME", "")
+ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD", "")
 
 
 def hash_password(password: str) -> str:
@@ -181,11 +182,15 @@ def _migrate():
             pass  # column already exists or DB doesn't support IF NOT EXISTS
 
 
+USER_USERNAME = os.getenv("USER_USERNAME", "")
+USER_PASSWORD = os.getenv("USER_PASSWORD", "")
+
 def seed_users(db: Session) -> None:
-    """Seed the default user account. Admin lives in the env var only."""
-    if not db.query(User).filter_by(username="Miachen").first():
-        db.add(User(username="Miachen", password_hash=hash_password("GJE8AT2021$"), role="user"))
-        db.commit()
+    """Seed the default user account from env vars. Admin lives in env vars only."""
+    if USER_USERNAME and USER_PASSWORD:
+        if not db.query(User).filter_by(username=USER_USERNAME).first():
+            db.add(User(username=USER_USERNAME, password_hash=hash_password(USER_PASSWORD), role="user"))
+            db.commit()
 
 
 def seed_defaults(db: Session) -> None:
@@ -266,10 +271,15 @@ app.add_middleware(
 
 @app.post("/api/auth/login", response_model=AuthResponse)
 def login(data: LoginRequest, db: Session = Depends(get_db)):
-    """Verify credentials and return role. Admin password comes from ADMIN_PASSWORD env var."""
+    """Verify credentials and return role. Admin credentials come from env vars."""
     # Admin shortcut — never stored in DB
-    if data.username == "Admin" and data.password == ADMIN_PASSWORD:
-        return AuthResponse(username="Admin", role="admin")
+    if (
+        ADMIN_USERNAME
+        and ADMIN_PASSWORD
+        and data.username == ADMIN_USERNAME
+        and data.password == ADMIN_PASSWORD
+    ):
+        return AuthResponse(username=ADMIN_USERNAME, role="admin")
     # Regular user lookup
     user = db.query(User).filter(User.username == data.username).first()
     if user and verify_password(data.password, user.password_hash):
@@ -280,7 +290,7 @@ def login(data: LoginRequest, db: Session = Depends(get_db)):
 @app.post("/api/auth/signup", response_model=AuthResponse, status_code=201)
 def signup(data: SignupRequest, db: Session = Depends(get_db)):
     """Register a new user account (role=user)."""
-    if data.username == "Admin":
+    if ADMIN_USERNAME and data.username == ADMIN_USERNAME:
         raise HTTPException(status_code=400, detail="Username not available")
     if db.query(User).filter(User.username == data.username).first():
         raise HTTPException(status_code=400, detail="Username already taken")
