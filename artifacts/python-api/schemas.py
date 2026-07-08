@@ -7,6 +7,7 @@ class WalletResponse(BaseModel):
     btc: float
     eth: float
     usdt: float
+    trx: float
 
     model_config = {"from_attributes": True}
 
@@ -15,6 +16,7 @@ class WalletUpdate(BaseModel):
     btc: float = Field(ge=0)
     eth: float = Field(ge=0)
     usdt: float = Field(ge=0)
+    trx: float = Field(ge=0)
 
 
 class TransactionResponse(BaseModel):
@@ -40,9 +42,12 @@ class SettingsResponse(BaseModel):
     btc_price: float
     eth_price: float
     usdt_price: float
+    trx_price: float
     deposit_address_btc: Optional[str] = None
     deposit_address_eth: Optional[str] = None
     deposit_address_usdt: Optional[str] = None
+    deposit_address_trx: Optional[str] = None
+    auto_approve: bool = False
 
     model_config = {"from_attributes": True}
 
@@ -53,6 +58,9 @@ class SettingsUpdate(BaseModel):
     btc_price: Optional[float] = Field(default=None, gt=0)
     eth_price: Optional[float] = Field(default=None, gt=0)
     usdt_price: Optional[float] = Field(default=None, gt=0)
+    trx_price: Optional[float] = Field(default=None, gt=0)
     deposit_address_btc: Optional[str] = Field(default=None)
     deposit_address_eth: Optional[str] = Field(default=None)
     deposit_address_usdt: Optional[str] = Field(default=None)
+    deposit_address_trx: Optional[str] = Field(default=None)
+    auto_approve: Optional[bool] = Field(default=None)

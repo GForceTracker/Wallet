@@ -1,6 +1,13 @@
 import React, { useEffect, useState } from 'react';
 import { Settings, Search, ArrowUpRight, ArrowDownRight, LogOut, Copy, X } from 'lucide-react';
 import { SiBitcoin, SiEthereum, SiTether } from 'react-icons/si';
+
+// react-icons/si doesn't include a Tron icon — use a styled text badge instead
+const TrxIcon = ({ size = 24 }: { size?: number }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+    <text x="12" y="17" textAnchor="middle" fontSize="11" fontWeight="bold" fill="#ef0027" fontFamily="monospace">TRX</text>
+  </svg>
+);
 import { ViewState } from '../App';
 import { AssetType } from '../store';
 import { api, WalletData, SettingsData } from '../api';
@@ -23,17 +30,16 @@ function ReceiveModal({ settings, onClose }: ReceiveModalProps) {
     btc: settings.deposit_address_btc,
     eth: settings.deposit_address_eth,
     usdt: settings.deposit_address_usdt,
+    trx: settings.deposit_address_trx,
   };
 
   const address = addressMap[tab];
 
   const handleCopy = () => {
     if (!address) return;
-    navigator.clipboard.writeText(address).then(() => {
-      toast.success('Address copied to clipboard');
-    }).catch(() => {
-      toast.error('Failed to copy');
-    });
+    navigator.clipboard.writeText(address)
+      .then(() => toast.success('Address copied to clipboard'))
+      .catch(() => toast.error('Failed to copy'));
   };
 
   return (
@@ -47,12 +53,12 @@ function ReceiveModal({ settings, onClose }: ReceiveModalProps) {
         </div>
 
         {/* Asset tabs */}
-        <div className="flex gap-2">
-          {(['btc', 'eth', 'usdt'] as AssetType[]).map((a) => (
+        <div className="grid grid-cols-4 gap-2">
+          {(['btc', 'eth', 'usdt', 'trx'] as AssetType[]).map((a) => (
             <button
               key={a}
               onClick={() => setTab(a)}
-              className={`flex-1 py-2 rounded-xl text-sm font-medium transition-colors ${
+              className={`py-2 rounded-xl text-sm font-medium transition-colors ${
                 tab === a
                   ? 'bg-primary text-background'
                   : 'bg-background border border-border text-muted hover:text-foreground'
@@ -113,11 +119,17 @@ export function UserWalletView({ onNavigate, onLogout }: UserWalletViewProps) {
     );
   }
 
-  const prices = { btc: settings.btc_price, eth: settings.eth_price, usdt: settings.usdt_price };
+  const prices = {
+    btc: settings.btc_price,
+    eth: settings.eth_price,
+    usdt: settings.usdt_price,
+    trx: settings.trx_price,
+  };
   const totalBalance =
     wallet.btc * prices.btc +
     wallet.eth * prices.eth +
-    wallet.usdt * prices.usdt;
+    wallet.usdt * prices.usdt +
+    wallet.trx * prices.trx;
 
   const formatFiat = (val: number) =>
     new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(val);
@@ -180,28 +192,24 @@ export function UserWalletView({ onNavigate, onLogout }: UserWalletViewProps) {
         {/* Assets List */}
         <div className="flex-1 px-4 flex flex-col gap-3 overflow-y-auto">
           <AssetRow
-            name="Bitcoin"
-            symbol="BTC"
-            balance={wallet.btc}
-            price={prices.btc}
+            name="Bitcoin" symbol="BTC" balance={wallet.btc} price={prices.btc}
             icon={<div className="bg-[#f7931a]/10 p-2.5 rounded-full"><SiBitcoin className="text-[#f7931a] w-6 h-6" /></div>}
             onClick={() => onNavigate('asset-details', 'btc')}
           />
           <AssetRow
-            name="Ethereum"
-            symbol="ETH"
-            balance={wallet.eth}
-            price={prices.eth}
+            name="Ethereum" symbol="ETH" balance={wallet.eth} price={prices.eth}
             icon={<div className="bg-[#627eea]/10 p-2.5 rounded-full"><SiEthereum className="text-[#627eea] w-6 h-6" /></div>}
             onClick={() => onNavigate('asset-details', 'eth')}
           />
           <AssetRow
-            name="Tether"
-            symbol="USDT"
-            balance={wallet.usdt}
-            price={prices.usdt}
+            name="Tether" symbol="USDT" balance={wallet.usdt} price={prices.usdt}
             icon={<div className="bg-[#26a17b]/10 p-2.5 rounded-full"><SiTether className="text-[#26a17b] w-6 h-6" /></div>}
             onClick={() => onNavigate('asset-details', 'usdt')}
+          />
+          <AssetRow
+            name="Tron" symbol="TRX" balance={wallet.trx} price={prices.trx}
+            icon={<div className="bg-[#ef0027]/10 p-2.5 rounded-full"><TrxIcon size={24} /></div>}
+            onClick={() => onNavigate('asset-details', 'trx')}
           />
         </div>
 
@@ -223,9 +231,7 @@ export function UserWalletView({ onNavigate, onLogout }: UserWalletViewProps) {
   );
 }
 
-function AssetRow({
-  name, symbol, balance, price, icon, onClick,
-}: {
+function AssetRow({ name, symbol, balance, price, icon, onClick }: {
   name: string; symbol: string; balance: number; price: number;
   icon: React.ReactNode; onClick: () => void;
 }) {
@@ -239,7 +245,7 @@ function AssetRow({
         {icon}
         <div>
           <div className="font-semibold text-foreground text-base">{name}</div>
-          <div className="text-muted text-sm">${price.toLocaleString(undefined, { maximumFractionDigits: 2 })}</div>
+          <div className="text-muted text-sm">${price.toLocaleString(undefined, { maximumFractionDigits: 4 })}</div>
         </div>
       </div>
       <div className="text-right">

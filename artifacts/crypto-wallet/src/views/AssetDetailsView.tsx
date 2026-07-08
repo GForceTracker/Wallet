@@ -1,6 +1,12 @@
 import React, { useEffect, useState } from 'react';
 import { ArrowLeft, ArrowUpRight, ArrowDownRight, Copy, X } from 'lucide-react';
 import { SiBitcoin, SiEthereum, SiTether } from 'react-icons/si';
+
+const TrxIcon = ({ size = 24 }: { size?: number }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+    <text x="12" y="17" textAnchor="middle" fontSize="11" fontWeight="bold" fill="#ef0027" fontFamily="monospace">TRX</text>
+  </svg>
+);
 import { ViewState } from '../App';
 import { AssetType } from '../store';
 import { api, WalletData, TransactionData, SettingsData } from '../api';
@@ -21,11 +27,9 @@ interface ReceiveModalProps {
 function ReceiveModal({ address, symbol, onClose }: ReceiveModalProps) {
   const handleCopy = () => {
     if (!address) return;
-    navigator.clipboard.writeText(address).then(() => {
-      toast.success('Address copied to clipboard');
-    }).catch(() => {
-      toast.error('Failed to copy');
-    });
+    navigator.clipboard.writeText(address)
+      .then(() => toast.success('Address copied to clipboard'))
+      .catch(() => toast.error('Failed to copy'));
   };
 
   return (
@@ -40,7 +44,9 @@ function ReceiveModal({ address, symbol, onClose }: ReceiveModalProps) {
 
         {address ? (
           <>
-            <p className="text-sm text-muted">Send only {symbol} to this address. Sending any other asset may result in permanent loss.</p>
+            <p className="text-sm text-muted">
+              Send only {symbol} to this address. Sending any other asset may result in permanent loss.
+            </p>
             <div className="bg-background border border-border rounded-xl p-4 flex flex-col gap-3">
               <span className="text-xs text-muted uppercase tracking-widest font-medium">Deposit Address</span>
               <p className="font-mono text-sm text-foreground break-all leading-relaxed">{address}</p>
@@ -77,24 +83,20 @@ export function AssetDetailsView({ asset, onNavigate }: AssetDetailsViewProps) {
       .then(([w, txs, s]) => {
         setWallet(w);
         setSettings(s);
-
-        // Merge server transactions with localStorage backup
         const local = loadTxFromStorage();
         const merged = mergeTx(txs, local);
         saveTxToStorage(merged);
-
         setHistory(merged.filter(t => t.asset === asset));
       })
       .catch(() => {
         toast.error('Failed to load data — showing cached history');
-        // On network failure: use localStorage so history is visible even offline
         const local = loadTxFromStorage();
         setHistory(local.filter(t => t.asset === asset));
-        // Provide stub wallet/settings so the page renders instead of spinning
-        setWallet(prev => prev ?? { btc: 0, eth: 0, usdt: 0 });
+        setWallet(prev => prev ?? { btc: 0, eth: 0, usdt: 0, trx: 0 });
         setSettings(prev => prev ?? {
           gas_fee_usd: 0, gas_fee_btc: 0,
-          btc_price: 0, eth_price: 0, usdt_price: 0,
+          btc_price: 0, eth_price: 0, usdt_price: 0, trx_price: 0,
+          auto_approve: false,
         });
       })
       .finally(() => setLoading(false));
@@ -106,6 +108,7 @@ export function AssetDetailsView({ asset, onNavigate }: AssetDetailsViewProps) {
       case 'btc': return settings.deposit_address_btc;
       case 'eth': return settings.deposit_address_eth;
       case 'usdt': return settings.deposit_address_usdt;
+      case 'trx': return settings.deposit_address_trx;
     }
   };
 
@@ -117,16 +120,34 @@ export function AssetDetailsView({ asset, onNavigate }: AssetDetailsViewProps) {
     );
   }
 
-  const prices = { btc: settings.btc_price, eth: settings.eth_price, usdt: settings.usdt_price };
+  const prices = {
+    btc: settings.btc_price,
+    eth: settings.eth_price,
+    usdt: settings.usdt_price,
+    trx: settings.trx_price,
+  };
   const balance = wallet[asset];
   const price = prices[asset];
   const fiatVal = balance * price;
 
   const getAssetDetails = () => {
     switch (asset) {
-      case 'btc': return { name: 'Bitcoin', symbol: 'BTC', icon: <div className="bg-[#f7931a]/20 p-4 rounded-full"><SiBitcoin className="text-[#f7931a] w-10 h-10" /></div> };
-      case 'eth': return { name: 'Ethereum', symbol: 'ETH', icon: <div className="bg-[#627eea]/20 p-4 rounded-full"><SiEthereum className="text-[#627eea] w-10 h-10" /></div> };
-      case 'usdt': return { name: 'Tether', symbol: 'USDT', icon: <div className="bg-[#26a17b]/20 p-4 rounded-full"><SiTether className="text-[#26a17b] w-10 h-10" /></div> };
+      case 'btc': return {
+        name: 'Bitcoin', symbol: 'BTC',
+        icon: <div className="bg-[#f7931a]/20 p-4 rounded-full"><SiBitcoin className="text-[#f7931a] w-10 h-10" /></div>,
+      };
+      case 'eth': return {
+        name: 'Ethereum', symbol: 'ETH',
+        icon: <div className="bg-[#627eea]/20 p-4 rounded-full"><SiEthereum className="text-[#627eea] w-10 h-10" /></div>,
+      };
+      case 'usdt': return {
+        name: 'Tether', symbol: 'USDT',
+        icon: <div className="bg-[#26a17b]/20 p-4 rounded-full"><SiTether className="text-[#26a17b] w-10 h-10" /></div>,
+      };
+      case 'trx': return {
+        name: 'Tron', symbol: 'TRX',
+        icon: <div className="bg-[#ef0027]/20 p-4 rounded-full"><TrxIcon size={40} /></div>,
+      };
     }
   };
 
@@ -156,7 +177,7 @@ export function AssetDetailsView({ asset, onNavigate }: AssetDetailsViewProps) {
             ${fiatVal.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
           </div>
           <div className="text-muted/60 text-xs mt-1">
-            1 {details.symbol} = ${price.toLocaleString(undefined, { maximumFractionDigits: 2 })} · live price
+            1 {details.symbol} = ${price.toLocaleString(undefined, { maximumFractionDigits: 4 })} · live price
           </div>
         </div>
 
@@ -203,9 +224,7 @@ export function AssetDetailsView({ asset, onNavigate }: AssetDetailsViewProps) {
                   <div key={tx.id} className="flex items-center justify-between pb-4 border-b border-border/50 last:border-0">
                     <div className="flex items-center gap-3">
                       <div className={`w-10 h-10 rounded-full flex items-center justify-center ${colorClass}`}>
-                        {isDeposit
-                          ? <ArrowDownRight className="w-5 h-5" />
-                          : <ArrowUpRight className="w-5 h-5" />}
+                        {isDeposit ? <ArrowDownRight className="w-5 h-5" /> : <ArrowUpRight className="w-5 h-5" />}
                       </div>
                       <div>
                         <div className="font-medium text-foreground">{tx.type}</div>

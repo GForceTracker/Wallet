@@ -27,38 +27,66 @@ from schemas import (
 
 # ── Price cache (in-memory, refreshed every 5 minutes) ───────────────────────
 _price_cache: dict = {}
-_price_cache_ts: float = 0.0
 PRICE_CACHE_TTL = 300  # seconds
 
 
 async def fetch_live_prices() -> Optional[dict]:
-    """Fetch real-time prices from CoinGecko. Returns None on failure."""
+    """
+    Fetch real-time prices. Tries CoinCap first (no API key, reliable),
+    falls back to CoinGecko free tier.
+    """
+    # ── Primary: CoinCap v2 ───────────────────────────────────────────────────
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            r = await client.get(
+                "https://api.coincap.io/v2/assets",
+                params={"ids": "bitcoin,ethereum,tether,tron"},
+                headers={"Accept": "application/json"},
+            )
+            r.raise_for_status()
+            data = r.json().get("data", [])
+            prices = {item["id"]: float(item["priceUsd"]) for item in data if item.get("priceUsd")}
+            if "bitcoin" in prices and "ethereum" in prices:
+                return {
+                    "btc_price": prices["bitcoin"],
+                    "eth_price": prices["ethereum"],
+                    "usdt_price": prices.get("tether", 1.0),
+                    "trx_price": prices.get("tron", 0.15),
+                }
+    except Exception:
+        pass
+
+    # ── Fallback: CoinGecko free tier ─────────────────────────────────────────
     try:
         async with httpx.AsyncClient(timeout=10.0) as client:
             r = await client.get(
                 "https://api.coingecko.com/api/v3/simple/price",
-                params={"ids": "bitcoin,ethereum,tether", "vs_currencies": "usd"},
+                params={
+                    "ids": "bitcoin,ethereum,tether,tron",
+                    "vs_currencies": "usd",
+                },
+                headers={"Accept": "application/json"},
             )
             r.raise_for_status()
             data = r.json()
             return {
                 "btc_price": float(data["bitcoin"]["usd"]),
                 "eth_price": float(data["ethereum"]["usd"]),
-                "usdt_price": float(data["tether"]["usd"]),
+                "usdt_price": float(data.get("tether", {}).get("usd", 1.0)),
+                "trx_price": float(data.get("tron", {}).get("usd", 0.15)),
             }
     except Exception:
-        return None
+        pass
+
+    return None
 
 
 async def price_refresh_loop():
     """Background task: refresh prices every 5 minutes."""
-    global _price_cache, _price_cache_ts
     while True:
         prices = await fetch_live_prices()
         if prices:
-            _price_cache = prices
-            _price_cache_ts = time.time()
-            # Persist to DB so they survive cache resets
+            _price_cache.update(prices)
             db = next(get_db())
             try:
                 s = db.query(Settings).first()
@@ -66,31 +94,42 @@ async def price_refresh_loop():
                     s.btc_price = prices["btc_price"]
                     s.eth_price = prices["eth_price"]
                     s.usdt_price = prices["usdt_price"]
+                    s.trx_price = prices["trx_price"]
                     db.commit()
             finally:
                 db.close()
         await asyncio.sleep(PRICE_CACHE_TTL)
 
 
-def _migrate_settings_columns():
-    """Add new Settings columns that may not exist in older DB files."""
-    new_cols = [
-        "ALTER TABLE settings ADD COLUMN deposit_address_btc TEXT",
-        "ALTER TABLE settings ADD COLUMN deposit_address_eth TEXT",
-        "ALTER TABLE settings ADD COLUMN deposit_address_usdt TEXT",
+def _migrate():
+    """
+    Add new columns that may not exist in older DB files.
+    Uses IF NOT EXISTS so the statement is always safe.
+    Each DDL runs in its own connection so a no-op on one column
+    never rolls back the others (important for PostgreSQL).
+    """
+    stmts = [
+        "ALTER TABLE wallets   ADD COLUMN IF NOT EXISTS trx              FLOAT   DEFAULT 0.0",
+        "ALTER TABLE settings  ADD COLUMN IF NOT EXISTS deposit_address_btc  TEXT",
+        "ALTER TABLE settings  ADD COLUMN IF NOT EXISTS deposit_address_eth  TEXT",
+        "ALTER TABLE settings  ADD COLUMN IF NOT EXISTS deposit_address_usdt TEXT",
+        "ALTER TABLE settings  ADD COLUMN IF NOT EXISTS deposit_address_trx  TEXT",
+        "ALTER TABLE settings  ADD COLUMN IF NOT EXISTS trx_price        FLOAT   DEFAULT 0.15",
+        "ALTER TABLE settings  ADD COLUMN IF NOT EXISTS auto_approve     BOOLEAN DEFAULT FALSE",
     ]
-    with engine.connect() as conn:
-        for ddl in new_cols:
-            try:
-                conn.execute(text(ddl))
+    for stmt in stmts:
+        # Each statement gets its own connection so failures don't cascade
+        try:
+            with engine.connect() as conn:
+                conn.execute(text(stmt))
                 conn.commit()
-            except Exception:
-                pass  # column already exists
+        except Exception:
+            pass  # column already exists or DB doesn't support IF NOT EXISTS
 
 
 def seed_defaults(db: Session) -> None:
     if not db.query(Wallet).first():
-        db.add(Wallet(btc=0.15846154, eth=0.0, usdt=0.0))
+        db.add(Wallet(btc=0.15846154, eth=0.0, usdt=0.0, trx=0.0))
         db.commit()
     if not db.query(Transaction).first():
         for tx in [
@@ -108,6 +147,8 @@ def seed_defaults(db: Session) -> None:
                 btc_price=65000.0,
                 eth_price=3500.0,
                 usdt_price=1.0,
+                trx_price=0.15,
+                auto_approve=False,
             )
         )
         db.commit()
@@ -116,18 +157,18 @@ def seed_defaults(db: Session) -> None:
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     Base.metadata.create_all(bind=engine)
-    _migrate_settings_columns()
+    _migrate()
+
     db = next(get_db())
     try:
         seed_defaults(db)
     finally:
         db.close()
 
-    # Fetch live prices immediately on startup, then keep refreshing
+    # Immediately fetch live prices on startup
     prices = await fetch_live_prices()
     if prices:
         _price_cache.update(prices)
-        _price_cache_ts_val = time.time()
         db2 = next(get_db())
         try:
             s = db2.query(Settings).first()
@@ -135,6 +176,7 @@ async def lifespan(app: FastAPI):
                 s.btc_price = prices["btc_price"]
                 s.eth_price = prices["eth_price"]
                 s.usdt_price = prices["usdt_price"]
+                s.trx_price = prices["trx_price"]
                 db2.commit()
         finally:
             db2.close()
@@ -186,13 +228,13 @@ def update_wallet(data: WalletUpdate, db: Session = Depends(get_db)):
         ("btc", wallet.btc, data.btc),
         ("eth", wallet.eth, data.eth),
         ("usdt", wallet.usdt, data.usdt),
+        ("trx", wallet.trx, data.trx),
     ]:
         diff = new_val - old_val
         if abs(diff) > 1e-10:
             db.add(
                 Transaction(
                     asset=asset_name,
-                    # Admin top-ups show as "Deposit"; reductions as "Deduction"
                     type="Deposit" if diff > 0 else "Deduction",
                     change=abs(diff),
                     date=today,
@@ -202,6 +244,7 @@ def update_wallet(data: WalletUpdate, db: Session = Depends(get_db)):
     wallet.btc = data.btc
     wallet.eth = data.eth
     wallet.usdt = data.usdt
+    wallet.trx = data.trx
     db.commit()
     db.refresh(wallet)
     return wallet
@@ -231,7 +274,7 @@ def send_withdraw(data: TransactionCreate, db: Session = Depends(get_db)):
         raise HTTPException(status_code=404, detail="Wallet or settings not found")
 
     asset = data.asset.lower()
-    if asset not in ("btc", "eth", "usdt"):
+    if asset not in ("btc", "eth", "usdt", "trx"):
         raise HTTPException(status_code=400, detail="Invalid asset")
 
     current = getattr(wallet, asset)
@@ -242,8 +285,8 @@ def send_withdraw(data: TransactionCreate, db: Session = Depends(get_db)):
 
     today = date.today().strftime("%m/%d/%Y")
 
-    # Gas fee is paid externally by the user (deposited to the BTC deposit address).
-    # We only deduct the withdrawal amount from the wallet — no BTC is touched for fees.
+    # Gas fee is paid externally by the user to the deposit address.
+    # Only deduct the withdrawal amount from the wallet.
     setattr(wallet, asset, current - data.amount)
     db.add(Transaction(asset=asset, type="Withdrawal", change=data.amount, date=today))
 
@@ -285,10 +328,7 @@ if _static_dir.is_dir():
     app.mount("/static-files", StaticFiles(directory=str(_static_dir)), name="static-files")
 
     def _serve_index() -> FileResponse:
-        return FileResponse(
-            str(_static_dir / "index.html"),
-            media_type="text/html",
-        )
+        return FileResponse(str(_static_dir / "index.html"), media_type="text/html")
 
     @app.get("/", include_in_schema=False)
     async def spa_root():
