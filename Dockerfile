@@ -2,17 +2,30 @@
 FROM node:20-alpine AS frontend-builder
 WORKDIR /app
 
-RUN npm install -g pnpm@9
+RUN npm install -g pnpm@10
 
-# Copy workspace manifests (layer-cached until these files change)
+# ── Workspace manifests (all packages must be present for --frozen-lockfile) ──
+# Copy root-level config first (layer-cached until these change)
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml .npmrc ./
 COPY tsconfig.base.json tsconfig.json ./
 
-# Copy shared libraries and the frontend artifact
-COPY lib/ ./lib/
-COPY artifacts/crypto-wallet/ ./artifacts/crypto-wallet/
+# Stub every workspace package's package.json so pnpm can resolve the lockfile
+# without needing the full source of packages we won't build.
+COPY artifacts/crypto-wallet/package.json  ./artifacts/crypto-wallet/package.json
+COPY artifacts/api-server/package.json     ./artifacts/api-server/package.json
+COPY artifacts/mockup-sandbox/package.json ./artifacts/mockup-sandbox/package.json
+COPY lib/api-client-react/package.json     ./lib/api-client-react/package.json
+COPY lib/api-spec/package.json             ./lib/api-spec/package.json
+COPY lib/api-zod/package.json              ./lib/api-zod/package.json
+COPY lib/db/package.json                   ./lib/db/package.json
+COPY scripts/package.json                  ./scripts/package.json
 
+# Install all deps (lockfile now validates correctly)
 RUN pnpm install --frozen-lockfile
+
+# ── Copy source only for what we need to build ────────────────────────────────
+COPY artifacts/crypto-wallet/ ./artifacts/crypto-wallet/
+COPY lib/ ./lib/
 
 # Vite build (BASE_PATH=/ for standalone Docker; PORT is only needed at dev time)
 ENV BASE_PATH=/ PORT=3000 NODE_ENV=production
