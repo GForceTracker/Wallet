@@ -2,6 +2,23 @@ from pydantic import BaseModel, Field
 from typing import Optional
 
 
+# ── Auth ─────────────────────────────────────────────────────────────────────
+
+class LoginRequest(BaseModel):
+    username: str = Field(min_length=1)
+    password: str = Field(min_length=1)
+
+
+class SignupRequest(BaseModel):
+    username: str = Field(min_length=2, max_length=30)
+    password: str = Field(min_length=6)
+
+
+class AuthResponse(BaseModel):
+    username: str
+    role: str  # "user" | "admin"
+
+
 class WalletResponse(BaseModel):
     id: int
     btc: float

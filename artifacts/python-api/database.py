@@ -4,13 +4,25 @@ from sqlalchemy.orm import sessionmaker, declarative_base
 
 DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./wallet.db")
 
-# Render uses postgres:// but SQLAlchemy 1.4+ requires postgresql://
+# Render / Aiven use postgres:// but SQLAlchemy 1.4+ requires postgresql://
 if DATABASE_URL.startswith("postgres://"):
     DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql://", 1)
 
-connect_args = {"check_same_thread": False} if DATABASE_URL.startswith("sqlite") else {}
-
-engine = create_engine(DATABASE_URL, connect_args=connect_args)
+if DATABASE_URL.startswith("sqlite"):
+    connect_args = {"check_same_thread": False}
+    engine = create_engine(DATABASE_URL, connect_args=connect_args)
+else:
+    # Managed PostgreSQL hosts (Aiven, Render, etc.) require SSL.
+    # Only inject sslmode when the URL doesn't already specify it.
+    connect_args: dict = {}
+    if "sslmode" not in DATABASE_URL:
+        connect_args["sslmode"] = "require"
+    engine = create_engine(
+        DATABASE_URL,
+        connect_args=connect_args,
+        pool_pre_ping=True,   # detect stale connections and reconnect
+        pool_recycle=300,     # recycle connections every 5 min
+    )
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base = declarative_base()
 

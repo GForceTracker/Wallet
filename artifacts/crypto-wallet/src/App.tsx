@@ -2,13 +2,14 @@ import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Toaster } from 'sonner';
 import { LoginView } from './views/LoginView';
+import { SignupView } from './views/SignupView';
 import { UserWalletView } from './views/UserWalletView';
 import { AdminView } from './views/AdminView';
 import { AssetDetailsView } from './views/AssetDetailsView';
 import { SendWithdrawView } from './views/SendWithdrawView';
 import { AssetType } from './store';
 
-export type ViewState = 'login' | 'user-wallet' | 'admin' | 'asset-details' | 'send-withdraw';
+export type ViewState = 'login' | 'signup' | 'user-wallet' | 'admin' | 'asset-details' | 'send-withdraw';
 
 export interface AppState {
   currentView: ViewState;
@@ -31,7 +32,19 @@ function App() {
   const renderView = () => {
     switch (appState.currentView) {
       case 'login':
-        return <LoginView onLogin={(role) => navigate(role === 'admin' ? 'admin' : 'user-wallet')} />;
+        return (
+          <LoginView
+            onLogin={(role) => navigate(role === 'admin' ? 'admin' : 'user-wallet')}
+            onSignup={() => navigate('signup')}
+          />
+        );
+      case 'signup':
+        return (
+          <SignupView
+            onSuccess={() => navigate('login')}
+            onBack={() => navigate('login')}
+          />
+        );
       case 'user-wallet':
         return <UserWalletView onNavigate={navigate} onLogout={() => navigate('login')} />;
       case 'admin':
@@ -41,7 +54,12 @@ function App() {
       case 'send-withdraw':
         return <SendWithdrawView asset={appState.selectedAsset!} onNavigate={navigate} />;
       default:
-        return <LoginView onLogin={(role) => navigate(role === 'admin' ? 'admin' : 'user-wallet')} />;
+        return (
+          <LoginView
+            onLogin={(role) => navigate(role === 'admin' ? 'admin' : 'user-wallet')}
+            onSignup={() => navigate('signup')}
+          />
+        );
     }
   };
 

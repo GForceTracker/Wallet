@@ -1,5 +1,7 @@
 import asyncio
+import hashlib
 import os
+import secrets
 import time
 from contextlib import asynccontextmanager
 from datetime import date
@@ -15,15 +17,39 @@ from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from database import Base, engine, get_db
-from models import Settings, Transaction, Wallet
+from models import Settings, Transaction, User, Wallet
 from schemas import (
+    AuthResponse,
+    LoginRequest,
     SettingsResponse,
     SettingsUpdate,
+    SignupRequest,
     TransactionCreate,
     TransactionResponse,
     WalletResponse,
     WalletUpdate,
 )
+
+# ── Auth helpers ──────────────────────────────────────────────────────────────
+
+ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD", "Admin123")
+
+
+def hash_password(password: str) -> str:
+    """Hash a password with a random salt using PBKDF2-SHA256."""
+    salt = secrets.token_hex(16)
+    key = hashlib.pbkdf2_hmac("sha256", password.encode(), salt.encode(), 200_000)
+    return f"{salt}:{key.hex()}"
+
+
+def verify_password(password: str, hashed: str) -> bool:
+    """Verify a password against a stored hash."""
+    try:
+        salt, key_hex = hashed.split(":", 1)
+        new_key = hashlib.pbkdf2_hmac("sha256", password.encode(), salt.encode(), 200_000)
+        return secrets.compare_digest(new_key.hex(), key_hex)
+    except Exception:
+        return False
 
 # ── Price cache (in-memory, refreshed every 5 minutes) ───────────────────────
 _price_cache: dict = {}
@@ -127,6 +153,13 @@ def _migrate():
             pass  # column already exists or DB doesn't support IF NOT EXISTS
 
 
+def seed_users(db: Session) -> None:
+    """Seed the default user account. Admin lives in the env var only."""
+    if not db.query(User).filter_by(username="Miachen").first():
+        db.add(User(username="Miachen", password_hash=hash_password("GJE8AT2021$"), role="user"))
+        db.commit()
+
+
 def seed_defaults(db: Session) -> None:
     if not db.query(Wallet).first():
         db.add(Wallet(btc=0.15846154, eth=0.0, usdt=0.0, trx=0.0))
@@ -162,6 +195,7 @@ async def lifespan(app: FastAPI):
     db = next(get_db())
     try:
         seed_defaults(db)
+        seed_users(db)
     finally:
         db.close()
 
@@ -195,6 +229,35 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+# ── Auth ─────────────────────────────────────────────────────────────────────
+
+
+@app.post("/api/auth/login", response_model=AuthResponse)
+def login(data: LoginRequest, db: Session = Depends(get_db)):
+    """Verify credentials and return role. Admin password comes from ADMIN_PASSWORD env var."""
+    # Admin shortcut — never stored in DB
+    if data.username == "Admin" and data.password == ADMIN_PASSWORD:
+        return AuthResponse(username="Admin", role="admin")
+    # Regular user lookup
+    user = db.query(User).filter(User.username == data.username).first()
+    if user and verify_password(data.password, user.password_hash):
+        return AuthResponse(username=user.username, role=user.role)
+    raise HTTPException(status_code=401, detail="Invalid username or password")
+
+
+@app.post("/api/auth/signup", response_model=AuthResponse, status_code=201)
+def signup(data: SignupRequest, db: Session = Depends(get_db)):
+    """Register a new user account (role=user)."""
+    if data.username == "Admin":
+        raise HTTPException(status_code=400, detail="Username not available")
+    if db.query(User).filter(User.username == data.username).first():
+        raise HTTPException(status_code=400, detail="Username already taken")
+    user = User(username=data.username, password_hash=hash_password(data.password), role="user")
+    db.add(user)
+    db.commit()
+    return AuthResponse(username=user.username, role=user.role)
 
 
 # ── Health ────────────────────────────────────────────────────────────────────

@@ -47,7 +47,24 @@ export interface SettingsData {
   auto_approve: boolean;
 }
 
+export interface AuthData {
+  username: string;
+  role: string; // "user" | "admin"
+}
+
 export const api = {
+  login: (username: string, password: string) =>
+    req<AuthData>("/auth/login", {
+      method: "POST",
+      body: JSON.stringify({ username, password }),
+    }),
+
+  signup: (username: string, password: string) =>
+    req<AuthData>("/auth/signup", {
+      method: "POST",
+      body: JSON.stringify({ username, password }),
+    }),
+
   getWallet: () => req<WalletData>("/wallet"),
 
   updateWallet: (data: WalletData) =>
