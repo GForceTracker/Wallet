@@ -1,0 +1,9 @@
+node_modules
+.git
+.gitignore
+.replit
+.replitignore
+*.log
+dist
+.cache
+artifacts/mockup-sandbox

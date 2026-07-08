@@ -1,8 +1,9 @@
 import React, { useEffect, useState } from 'react';
 import { ArrowLeft, ArrowUpRight, ArrowDownRight } from 'lucide-react';
-import { ViewState } from '../App';
-import { AssetType, getBalances, getHistory, Balances, Transaction, PRICES } from '../store';
 import { SiBitcoin, SiEthereum, SiTether } from 'react-icons/si';
+import { ViewState } from '../App';
+import { AssetType } from '../store';
+import { api, WalletData, TransactionData, SettingsData } from '../api';
 import { toast } from 'sonner';
 
 interface AssetDetailsViewProps {
@@ -11,22 +12,41 @@ interface AssetDetailsViewProps {
 }
 
 export function AssetDetailsView({ asset, onNavigate }: AssetDetailsViewProps) {
-  const [balances, setBalances] = useState<Balances | null>(null);
-  const [history, setHistory] = useState<Transaction[]>([]);
+  const [wallet, setWallet] = useState<WalletData | null>(null);
+  const [history, setHistory] = useState<TransactionData[]>([]);
+  const [settings, setSettings] = useState<SettingsData | null>(null);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    setBalances(getBalances());
-    setHistory(getHistory().filter(h => h.asset === asset));
+    Promise.all([api.getWallet(), api.getTransactions(), api.getSettings()])
+      .then(([w, txs, s]) => {
+        setWallet(w);
+        setHistory(txs.filter(t => t.asset === asset));
+        setSettings(s);
+      })
+      .catch(() => toast.error('Failed to load data'))
+      .finally(() => setLoading(false));
   }, [asset]);
 
-  if (!balances) return null;
+  const handleReceive = () => {
+    toast('Your receiving address is linked directly to your account keys.');
+  };
 
-  const balance = balances[asset];
-  const price = PRICES[asset];
+  if (loading || !wallet || !settings) {
+    return (
+      <div className="flex flex-col h-full items-center justify-center bg-background">
+        <div className="w-8 h-8 border-2 border-primary border-t-transparent rounded-full animate-spin" />
+      </div>
+    );
+  }
+
+  const prices = { btc: settings.btc_price, eth: settings.eth_price, usdt: settings.usdt_price };
+  const balance = wallet[asset];
+  const price = prices[asset];
   const fiatVal = balance * price;
 
   const getAssetDetails = () => {
-    switch(asset) {
+    switch (asset) {
       case 'btc': return { name: 'Bitcoin', symbol: 'BTC', icon: <div className="bg-[#f7931a]/20 p-4 rounded-full"><SiBitcoin className="text-[#f7931a] w-10 h-10" /></div> };
       case 'eth': return { name: 'Ethereum', symbol: 'ETH', icon: <div className="bg-[#627eea]/20 p-4 rounded-full"><SiEthereum className="text-[#627eea] w-10 h-10" /></div> };
       case 'usdt': return { name: 'Tether', symbol: 'USDT', icon: <div className="bg-[#26a17b]/20 p-4 rounded-full"><SiTether className="text-[#26a17b] w-10 h-10" /></div> };
@@ -35,15 +55,11 @@ export function AssetDetailsView({ asset, onNavigate }: AssetDetailsViewProps) {
 
   const details = getAssetDetails();
 
-  const handleReceive = () => {
-    toast('Your receiving address is linked directly to your account keys.');
-  };
-
   return (
     <div className="flex flex-col h-full bg-background">
       {/* Header */}
       <div className="flex items-center p-6 pt-10 relative">
-        <button 
+        <button
           onClick={() => onNavigate('user-wallet')}
           className="p-2 -ml-2 text-muted hover:text-foreground transition-colors absolute left-6"
         >
@@ -65,14 +81,14 @@ export function AssetDetailsView({ asset, onNavigate }: AssetDetailsViewProps) {
 
       {/* Actions */}
       <div className="flex justify-center gap-4 px-6 pb-8">
-        <button 
+        <button
           onClick={() => onNavigate('send-withdraw', asset)}
           className="flex-1 bg-primary text-background flex items-center justify-center gap-2 py-3.5 rounded-xl font-medium hover:bg-primary/90 transition-colors shadow-lg active:scale-[0.98]"
         >
           <ArrowUpRight className="w-5 h-5" />
           Send
         </button>
-        <button 
+        <button
           onClick={handleReceive}
           className="flex-1 bg-card border border-border text-primary flex items-center justify-center gap-2 py-3.5 rounded-xl font-medium hover:bg-card/80 transition-colors active:scale-[0.98]"
         >
@@ -84,17 +100,17 @@ export function AssetDetailsView({ asset, onNavigate }: AssetDetailsViewProps) {
       {/* History */}
       <div className="flex-1 bg-card rounded-t-3xl p-6 border-t border-border flex flex-col">
         <h3 className="text-foreground font-semibold mb-4">Transaction History</h3>
-        
+
         {history.length === 0 ? (
           <div className="flex-1 flex items-center justify-center text-muted text-sm pb-10">
             No transactions yet
           </div>
         ) : (
           <div className="flex flex-col gap-4 overflow-y-auto pb-6">
-            {history.slice().reverse().map((tx, idx) => {
+            {history.slice().reverse().map((tx) => {
               const isDeposit = tx.type.toLowerCase().includes('deposit');
               return (
-                <div key={idx} className="flex items-center justify-between pb-4 border-b border-border/50 last:border-0">
+                <div key={tx.id} className="flex items-center justify-between pb-4 border-b border-border/50 last:border-0">
                   <div className="flex items-center gap-3">
                     <div className={`w-10 h-10 rounded-full flex items-center justify-center ${isDeposit ? 'bg-success/10 text-success' : 'bg-destructive/10 text-destructive'}`}>
                       {isDeposit ? <ArrowDownRight className="w-5 h-5" /> : <ArrowUpRight className="w-5 h-5" />}

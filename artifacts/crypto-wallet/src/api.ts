@@ -1,0 +1,60 @@
+// Base URL: in dev, Vite proxies /api → http://localhost:8000
+// In Docker, nginx proxies /api → http://api:8000
+const BASE = "/api";
+
+async function req<T>(path: string, options?: RequestInit): Promise<T> {
+  const res = await fetch(`${BASE}${path}`, {
+    headers: { "Content-Type": "application/json" },
+    ...options,
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({ detail: res.statusText }));
+    throw new Error(body.detail ?? "Request failed");
+  }
+  return res.json() as Promise<T>;
+}
+
+export interface WalletData {
+  btc: number;
+  eth: number;
+  usdt: number;
+}
+
+export interface TransactionData {
+  id: number;
+  asset: string;
+  type: string;
+  change: number;
+  date: string;
+}
+
+export interface SettingsData {
+  gas_fee_usd: number;
+  gas_fee_btc: number;
+  btc_price: number;
+  eth_price: number;
+  usdt_price: number;
+}
+
+export const api = {
+  getWallet: () => req<WalletData>("/wallet"),
+
+  updateWallet: (data: WalletData) =>
+    req<WalletData>("/wallet", { method: "PUT", body: JSON.stringify(data) }),
+
+  getTransactions: () => req<TransactionData[]>("/transactions"),
+
+  sendWithdraw: (asset: string, amount: number, address: string) =>
+    req<WalletData>("/transactions", {
+      method: "POST",
+      body: JSON.stringify({ asset, amount, address }),
+    }),
+
+  getSettings: () => req<SettingsData>("/settings"),
+
+  updateSettings: (data: Partial<SettingsData>) =>
+    req<SettingsData>("/settings", {
+      method: "PUT",
+      body: JSON.stringify(data),
+    }),
+};
