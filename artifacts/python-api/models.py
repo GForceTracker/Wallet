@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, Float, String, Boolean
+from sqlalchemy import Column, Integer, Float, String, Boolean, ForeignKey
 from database import Base
 
 
@@ -8,13 +8,14 @@ class User(Base):
     id = Column(Integer, primary_key=True, index=True)
     username = Column(String, unique=True, nullable=False, index=True)
     password_hash = Column(String, nullable=False)
-    role = Column(String, default="user", nullable=False)  # "user" | "admin"
+    role = Column(String, default="user", nullable=False)
 
 
 class Wallet(Base):
     __tablename__ = "wallets"
 
     id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=True)
     btc = Column(Float, default=0.0, nullable=False)
     eth = Column(Float, default=0.0, nullable=False)
     usdt_trc20 = Column(Float, default=0.0, nullable=False)
@@ -27,10 +28,21 @@ class Transaction(Base):
     __tablename__ = "transactions"
 
     id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=True)
     asset = Column(String, nullable=False)
     type = Column(String, nullable=False)
     change = Column(Float, nullable=False)
     date = Column(String, nullable=False)
+
+
+class Notification(Base):
+    __tablename__ = "notifications"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    message = Column(String, nullable=False)
+    is_read = Column(Boolean, default=False, nullable=False)
+    created_at = Column(String, nullable=False)
 
 
 class Settings(Base):
@@ -43,12 +55,17 @@ class Settings(Base):
     eth_price = Column(Float, default=3500.0, nullable=False)
     usdt_price = Column(Float, default=1.0, nullable=False)
     trx_price = Column(Float, default=0.15, nullable=False)
-    # Deposit addresses — set by admin
     deposit_address_btc = Column(String, nullable=True, default=None)
     deposit_address_eth = Column(String, nullable=True, default=None)
     deposit_address_usdt_trc20 = Column(String, nullable=True, default=None)
     deposit_address_usdt_bep20 = Column(String, nullable=True, default=None)
     deposit_address_usdt_erc20 = Column(String, nullable=True, default=None)
     deposit_address_trx = Column(String, nullable=True, default=None)
-    # Auto-approve: skip gas fee requirement for withdrawals
     auto_approve = Column(Boolean, default=False, nullable=False)
+    # Per-coin withdrawal fees (USD amount)
+    withdrawal_fee_btc = Column(Float, default=0.0, nullable=False)
+    withdrawal_fee_eth = Column(Float, default=0.0, nullable=False)
+    withdrawal_fee_usdt_trc20 = Column(Float, default=0.0, nullable=False)
+    withdrawal_fee_usdt_bep20 = Column(Float, default=0.0, nullable=False)
+    withdrawal_fee_usdt_erc20 = Column(Float, default=0.0, nullable=False)
+    withdrawal_fee_trx = Column(Float, default=0.0, nullable=False)

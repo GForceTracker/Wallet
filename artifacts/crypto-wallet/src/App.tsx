@@ -7,15 +7,24 @@ import { UserWalletView } from './views/UserWalletView';
 import { AdminView } from './views/AdminView';
 import { AssetDetailsView } from './views/AssetDetailsView';
 import { SendWithdrawView } from './views/SendWithdrawView';
+import { SettingsView } from './views/SettingsView';
 import { SplashScreen } from './components/SplashScreen';
 import { useColorScheme } from './hooks/useColorScheme';
 import { AssetType } from './store';
+import { api, setCurrentUser, clearCurrentUser } from './api';
 
-export type ViewState = 'login' | 'signup' | 'user-wallet' | 'admin' | 'asset-details' | 'send-withdraw';
+export type ViewState = 'login' | 'signup' | 'user-wallet' | 'admin' | 'asset-details' | 'send-withdraw' | 'settings';
+
+export interface CurrentUser {
+  username: string;
+  role: string;
+  userId: number | null;
+}
 
 export interface AppState {
   currentView: ViewState;
   selectedAsset: AssetType | null;
+  currentUser: CurrentUser | null;
 }
 
 function App() {
@@ -25,21 +34,42 @@ function App() {
   const [appState, setAppState] = useState<AppState>({
     currentView: 'login',
     selectedAsset: null,
+    currentUser: null,
   });
 
   const navigate = (view: ViewState, asset?: AssetType) => {
     setAppState(prev => ({
+      ...prev,
       currentView: view,
       selectedAsset: asset !== undefined ? asset : prev.selectedAsset,
     }));
   };
 
+  const handleLogin = (username: string, role: string, userId: number | null) => {
+    setCurrentUser(username);
+    setAppState(prev => ({
+      ...prev,
+      currentUser: { username, role, userId },
+      currentView: role === 'admin' ? 'admin' : 'user-wallet',
+    }));
+  };
+
+  const handleLogout = () => {
+    clearCurrentUser();
+    setAppState({
+      currentView: 'login',
+      selectedAsset: null,
+      currentUser: null,
+    });
+  };
+
   const renderView = () => {
+    const username = appState.currentUser?.username ?? '';
     switch (appState.currentView) {
       case 'login':
         return (
           <LoginView
-            onLogin={(role) => navigate(role === 'admin' ? 'admin' : 'user-wallet')}
+            onLogin={handleLogin}
             onSignup={() => navigate('signup')}
           />
         );
@@ -51,17 +81,31 @@ function App() {
           />
         );
       case 'user-wallet':
-        return <UserWalletView onNavigate={navigate} onLogout={() => navigate('login')} />;
+        return (
+          <UserWalletView
+            username={username}
+            onNavigate={navigate}
+            onLogout={handleLogout}
+          />
+        );
       case 'admin':
-        return <AdminView onLogout={() => navigate('login')} />;
+        return <AdminView onLogout={handleLogout} />;
       case 'asset-details':
         return <AssetDetailsView asset={appState.selectedAsset!} onNavigate={navigate} />;
       case 'send-withdraw':
         return <SendWithdrawView asset={appState.selectedAsset!} onNavigate={navigate} />;
+      case 'settings':
+        return (
+          <SettingsView
+            username={username}
+            onBack={() => navigate('user-wallet')}
+            onLogout={handleLogout}
+          />
+        );
       default:
         return (
           <LoginView
-            onLogin={(role) => navigate(role === 'admin' ? 'admin' : 'user-wallet')}
+            onLogin={handleLogin}
             onSignup={() => navigate('signup')}
           />
         );
@@ -69,18 +113,14 @@ function App() {
   };
 
   return (
-    // Outer shell: bg-scheme adapts to light/dark; phone card centred on wide screens
     <div className="min-h-[100svh] w-full bg-scheme sm:flex sm:items-center sm:justify-center">
       <div className="w-full sm:max-w-[430px] min-h-[100svh] sm:min-h-0 sm:h-[100svh] bg-background sm:rounded-3xl sm:border border-border overflow-hidden relative shadow-2xl flex flex-col">
-
-        {/* ── Splash overlay ────────────────────────────────────────────── */}
         <AnimatePresence>
           {showSplash && (
             <SplashScreen onComplete={() => setShowSplash(false)} />
           )}
         </AnimatePresence>
 
-        {/* ── App views ─────────────────────────────────────────────────── */}
         <AnimatePresence mode="wait" initial={false}>
           <motion.div
             key={appState.currentView}
@@ -95,7 +135,6 @@ function App() {
         </AnimatePresence>
       </div>
 
-      {/* Toast notifications – follows system colour scheme */}
       <Toaster theme={colorScheme} position="top-center" />
     </div>
   );

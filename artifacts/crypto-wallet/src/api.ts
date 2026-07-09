@@ -1,13 +1,21 @@
-// Base URL resolution:
-//   Local dev  → Vite proxy forwards /api to http://localhost:8000
-//   Docker     → nginx proxies /api to the Python container
-//   Render     → set VITE_API_URL=https://your-api.onrender.com at build time
 const BASE = (import.meta.env.VITE_API_URL as string | undefined)?.replace(/\/$/, "") ?? "/api";
 
+let _currentUsername = "";
+
+export function setCurrentUser(username: string) {
+  _currentUsername = username;
+}
+
+export function clearCurrentUser() {
+  _currentUsername = "";
+}
+
 async function req<T>(path: string, options?: RequestInit): Promise<T> {
+  const defaultHeaders: Record<string, string> = { "Content-Type": "application/json" };
+  if (_currentUsername) defaultHeaders["X-Username"] = _currentUsername;
   const res = await fetch(`${BASE}${path}`, {
-    headers: { "Content-Type": "application/json" },
     ...options,
+    headers: { ...defaultHeaders, ...(options?.headers as Record<string, string> | undefined ?? {}) },
   });
   if (!res.ok) {
     const body = await res.json().catch(() => ({ detail: res.statusText }));
@@ -18,6 +26,8 @@ async function req<T>(path: string, options?: RequestInit): Promise<T> {
 }
 
 export interface WalletData {
+  id?: number;
+  user_id?: number | null;
   btc: number;
   eth: number;
   usdt_trc20: number;
@@ -28,6 +38,7 @@ export interface WalletData {
 
 export interface TransactionData {
   id: number;
+  user_id?: number | null;
   asset: string;
   type: string;
   change: number;
@@ -49,11 +60,33 @@ export interface SettingsData {
   deposit_address_usdt_erc20?: string | null;
   deposit_address_trx?: string | null;
   auto_approve: boolean;
+  withdrawal_fee_btc?: number;
+  withdrawal_fee_eth?: number;
+  withdrawal_fee_usdt_trc20?: number;
+  withdrawal_fee_usdt_bep20?: number;
+  withdrawal_fee_usdt_erc20?: number;
+  withdrawal_fee_trx?: number;
 }
 
 export interface AuthData {
   username: string;
-  role: string; // "user" | "admin"
+  role: string;
+  user_id: number | null;
+}
+
+export interface UserWithWallet {
+  id: number;
+  username: string;
+  role: string;
+  wallet: WalletData | null;
+}
+
+export interface NotificationData {
+  id: number;
+  user_id: number;
+  message: string;
+  is_read: boolean;
+  created_at: string;
 }
 
 export const api = {
@@ -71,7 +104,7 @@ export const api = {
 
   getWallet: () => req<WalletData>("/wallet"),
 
-  updateWallet: (data: WalletData) =>
+  updateWallet: (data: Omit<WalletData, "id" | "user_id">) =>
     req<WalletData>("/wallet", { method: "PUT", body: JSON.stringify(data) }),
 
   getTransactions: () => req<TransactionData[]>("/transactions"),
@@ -92,4 +125,22 @@ export const api = {
       method: "PUT",
       body: JSON.stringify(data),
     }),
+
+  // Admin: users
+  getUsers: () => req<UserWithWallet[]>("/admin/users"),
+
+  adminUpdateUserWallet: (userId: number, data: Omit<WalletData, "id" | "user_id">) =>
+    req<WalletData>(`/admin/users/${userId}/wallet`, {
+      method: "PUT",
+      body: JSON.stringify(data),
+    }),
+
+  adminDeleteUserTransactions: (userId: number) =>
+    req<void>(`/admin/users/${userId}/transactions`, { method: "DELETE" }),
+
+  // Notifications
+  getNotifications: () => req<NotificationData[]>("/notifications"),
+
+  markNotificationRead: (id: number) =>
+    req<void>(`/notifications/${id}/read`, { method: "PATCH" }),
 };

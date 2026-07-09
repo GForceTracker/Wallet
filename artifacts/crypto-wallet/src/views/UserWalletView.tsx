@@ -1,7 +1,11 @@
-import React, { useEffect, useState } from 'react';
-import { Settings, Search, ArrowUpRight, ArrowDownRight, LogOut, Copy, X } from 'lucide-react';
+import React, { useEffect, useState, useRef } from 'react';
+import { Settings, Search, ArrowUpRight, ArrowDownRight, LogOut, Copy, X, Bell } from 'lucide-react';
 import { SiBitcoin, SiEthereum, SiTether } from 'react-icons/si';
 import { TrantLogo } from '../components/TrantLogo';
+import { ViewState } from '../App';
+import { AssetType } from '../store';
+import { api, WalletData, SettingsData, NotificationData } from '../api';
+import { toast } from 'sonner';
 
 const TrxIcon = ({ size = 24 }: { size?: number }) => (
   <img
@@ -19,12 +23,8 @@ const USDT_NETWORK_COLOR: Record<UsdtNetwork, string> = {
   ERC20: '#627eea',
 };
 
-import { ViewState } from '../App';
-import { AssetType } from '../store';
-import { api, WalletData, SettingsData } from '../api';
-import { toast } from 'sonner';
-
 interface UserWalletViewProps {
+  username: string;
   onNavigate: (view: ViewState, asset?: AssetType) => void;
   onLogout: () => void;
 }
@@ -36,7 +36,6 @@ interface ReceiveModalProps {
 
 function ReceiveModal({ settings, onClose }: ReceiveModalProps) {
   const [tab, setTab] = useState<AssetType>('btc');
-
   const addressMap: Record<AssetType, string | null | undefined> = {
     btc: settings.deposit_address_btc,
     eth: settings.deposit_address_eth,
@@ -45,25 +44,16 @@ function ReceiveModal({ settings, onClose }: ReceiveModalProps) {
     usdt_erc20: settings.deposit_address_usdt_erc20,
     trx: settings.deposit_address_trx,
   };
-
   const tabLabels: Record<AssetType, string> = {
-    btc: 'BTC',
-    eth: 'ETH',
-    usdt_trc20: 'TRC20',
-    usdt_bep20: 'BEP20',
-    usdt_erc20: 'ERC20',
-    trx: 'TRX',
+    btc: 'BTC', eth: 'ETH', usdt_trc20: 'TRC20', usdt_bep20: 'BEP20', usdt_erc20: 'ERC20', trx: 'TRX',
   };
-
   const address = addressMap[tab];
-
   const handleCopy = () => {
     if (!address) return;
     navigator.clipboard.writeText(address)
       .then(() => toast.success('Address copied to clipboard'))
       .catch(() => toast.error('Failed to copy'));
   };
-
   return (
     <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/60 backdrop-blur-sm p-4">
       <div className="w-full max-w-[430px] bg-card border border-border rounded-3xl p-6 flex flex-col gap-5 shadow-2xl">
@@ -73,29 +63,22 @@ function ReceiveModal({ settings, onClose }: ReceiveModalProps) {
             <X className="w-5 h-5" />
           </button>
         </div>
-
-        {/* Asset tabs — 3 columns, 2 rows */}
         <div className="grid grid-cols-3 gap-2">
           {(['btc', 'eth', 'trx', 'usdt_trc20', 'usdt_bep20', 'usdt_erc20'] as AssetType[]).map((a) => (
             <button
               key={a}
               onClick={() => setTab(a)}
               className={`py-2 rounded-xl text-sm font-medium transition-colors ${
-                tab === a
-                  ? 'bg-primary text-background'
-                  : 'bg-background border border-border text-muted hover:text-foreground'
+                tab === a ? 'bg-primary text-background' : 'bg-background border border-border text-muted hover:text-foreground'
               }`}
             >
               {tabLabels[a]}
             </button>
           ))}
         </div>
-
         {address ? (
           <>
-            <p className="text-sm text-muted">
-              Send only {tabLabels[tab]} to this address. Sending any other asset may result in permanent loss.
-            </p>
+            <p className="text-sm text-muted">Send only {tabLabels[tab]} to this address.</p>
             <div className="bg-background border border-border rounded-xl p-4 flex flex-col gap-3">
               <span className="text-xs text-muted uppercase tracking-widest font-medium">Deposit Address</span>
               <p className="font-mono text-sm text-foreground break-all leading-relaxed">{address}</p>
@@ -110,9 +93,7 @@ function ReceiveModal({ settings, onClose }: ReceiveModalProps) {
           </>
         ) : (
           <div className="flex flex-col items-center gap-3 py-4 text-center">
-            <p className="text-muted text-sm">
-              No {tabLabels[tab]} deposit address has been configured yet. Please contact support.
-            </p>
+            <p className="text-muted text-sm">No {tabLabels[tab]} deposit address configured yet.</p>
           </div>
         )}
       </div>
@@ -120,11 +101,37 @@ function ReceiveModal({ settings, onClose }: ReceiveModalProps) {
   );
 }
 
-export function UserWalletView({ onNavigate, onLogout }: UserWalletViewProps) {
+function DepositNotificationModal({ notification, onDismiss }: { notification: NotificationData; onDismiss: () => void }) {
+  return (
+    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/70 backdrop-blur-sm p-5">
+      <div className="w-full max-w-[380px] bg-card border border-border rounded-3xl p-7 flex flex-col items-center gap-5 shadow-2xl">
+        <div className="w-16 h-16 rounded-full bg-success/15 flex items-center justify-center">
+          <ArrowDownRight className="w-8 h-8 text-success" />
+        </div>
+        <div className="text-center flex flex-col gap-2">
+          <h2 className="text-xl font-bold text-foreground">Deposit Received!</h2>
+          <p className="text-muted text-sm leading-relaxed">{notification.message}</p>
+        </div>
+        <button
+          onClick={onDismiss}
+          className="w-full bg-success hover:bg-success/90 text-white font-semibold rounded-xl px-4 py-4 transition-colors active:scale-[0.98]"
+        >
+          Got it
+        </button>
+      </div>
+    </div>
+  );
+}
+
+export function UserWalletView({ username, onNavigate, onLogout }: UserWalletViewProps) {
   const [wallet, setWallet] = useState<WalletData | null>(null);
   const [settings, setSettings] = useState<SettingsData | null>(null);
   const [loading, setLoading] = useState(true);
   const [showReceive, setShowReceive] = useState(false);
+  const [pendingNotif, setPendingNotif] = useState<NotificationData | null>(null);
+  const seenIdsRef = useRef<Set<number>>(new Set());
+
+  const walletName = username ? `${username} Wallet 1` : 'My Wallet';
 
   useEffect(() => {
     Promise.all([api.getWallet(), api.getSettings()])
@@ -136,12 +143,37 @@ export function UserWalletView({ onNavigate, onLogout }: UserWalletViewProps) {
   // Refresh prices every 15 seconds
   useEffect(() => {
     const interval = setInterval(() => {
-      api.getSettings()
-        .then(s => setSettings(s))
-        .catch(() => {});
+      api.getSettings().then(s => setSettings(s)).catch(() => {});
+      api.getWallet().then(w => setWallet(w)).catch(() => {});
     }, 15_000);
     return () => clearInterval(interval);
   }, []);
+
+  // Poll notifications every 30 seconds
+  useEffect(() => {
+    const checkNotifs = () => {
+      api.getNotifications()
+        .then(notifs => {
+          const unseen = notifs.find(n => !seenIdsRef.current.has(n.id));
+          if (unseen && !pendingNotif) {
+            seenIdsRef.current.add(unseen.id);
+            setPendingNotif(unseen);
+          }
+        })
+        .catch(() => {});
+    };
+    checkNotifs();
+    const interval = setInterval(checkNotifs, 30_000);
+    return () => clearInterval(interval);
+  }, [pendingNotif]);
+
+  const handleDismissNotif = async () => {
+    if (!pendingNotif) return;
+    await api.markNotificationRead(pendingNotif.id).catch(() => {});
+    // Refresh wallet after deposit notification
+    api.getWallet().then(w => setWallet(w)).catch(() => {});
+    setPendingNotif(null);
+  };
 
   if (loading || !wallet || !settings) {
     return (
@@ -167,29 +199,37 @@ export function UserWalletView({ onNavigate, onLogout }: UserWalletViewProps) {
     <>
       <div className="flex flex-col h-full bg-background pb-6">
         {/* Header */}
-        <div className="flex items-center justify-between p-6 pt-10">
-          <button className="p-2 -ml-2 text-muted hover:text-foreground transition-colors">
+        <div className="flex items-center justify-between px-6 pt-7 pb-2">
+          <button
+            onClick={() => onNavigate('settings')}
+            className="p-2 -ml-2 text-muted hover:text-foreground transition-colors"
+          >
             <Settings className="w-6 h-6" />
           </button>
           <div className="flex items-center gap-1.5">
-            <TrantLogo size={22} />
-            <span className="font-bold tracking-[0.12em] text-foreground text-sm">TRANT</span>
+            <TrantLogo size={20} />
+            <span className="font-bold tracking-[0.12em] text-foreground text-base">TRANT</span>
           </div>
           <button className="p-2 -mr-2 text-muted hover:text-foreground transition-colors">
             <Search className="w-6 h-6" />
           </button>
         </div>
 
+        {/* Wallet name */}
+        <div className="text-center pt-1 pb-1">
+          <span className="text-xs text-muted tracking-wider uppercase font-medium">{walletName}</span>
+        </div>
+
         {/* Balance */}
-        <div className="flex flex-col items-center justify-center py-6">
-          <span className="text-muted text-sm mb-2">Total Balance</span>
+        <div className="flex flex-col items-center justify-center py-5">
+          <span className="text-muted text-sm mb-1.5">Total Balance</span>
           <h1 className="text-5xl font-semibold tracking-tight text-foreground">
             {formatFiat(totalBalance)}
           </h1>
         </div>
 
         {/* Actions */}
-        <div className="flex items-start justify-center gap-8 py-6 mb-4">
+        <div className="flex items-start justify-center gap-8 py-4 mb-2">
           <div className="flex flex-col items-center gap-2">
             <button
               onClick={() => onNavigate('send-withdraw', 'usdt_trc20')}
@@ -271,6 +311,10 @@ export function UserWalletView({ onNavigate, onLogout }: UserWalletViewProps) {
 
       {showReceive && settings && (
         <ReceiveModal settings={settings} onClose={() => setShowReceive(false)} />
+      )}
+
+      {pendingNotif && (
+        <DepositNotificationModal notification={pendingNotif} onDismiss={handleDismissNotif} />
       )}
     </>
   );

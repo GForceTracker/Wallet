@@ -1,9 +1,9 @@
 import React, { useState } from 'react';
-import { ArrowLeft, UserPlus } from 'lucide-react';
+import { ArrowLeft, Eye, EyeOff, UserPlus } from 'lucide-react';
 import { api } from '../api';
 
 interface SignupViewProps {
-  onSuccess: () => void; // redirect to login after signup
+  onSuccess: () => void;
   onBack: () => void;
 }
 
@@ -11,6 +11,8 @@ export function SignupView({ onSuccess, onBack }: SignupViewProps) {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [confirm, setConfirm] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
+  const [showConfirm, setShowConfirm] = useState(false);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
 
@@ -44,7 +46,6 @@ export function SignupView({ onSuccess, onBack }: SignupViewProps) {
 
   return (
     <div className="flex flex-col h-full p-6 bg-background items-center justify-center">
-      {/* Back button */}
       <div className="w-full flex items-start mb-4 -mt-4">
         <button
           onClick={onBack}
@@ -54,12 +55,12 @@ export function SignupView({ onSuccess, onBack }: SignupViewProps) {
         </button>
       </div>
 
-      <div className="w-16 h-16 bg-card rounded-full flex items-center justify-center mb-6 border border-border shadow-lg">
+      <div className="w-16 h-16 bg-card rounded-full flex items-center justify-center mb-5 border border-border shadow-lg">
         <UserPlus className="w-8 h-8 text-primary" />
       </div>
 
-      <h1 className="text-2xl font-semibold text-foreground mb-2">Create Account</h1>
-      <p className="text-muted text-sm mb-10 text-center">Sign up to access your wallet</p>
+      <h1 className="text-2xl font-semibold text-foreground mb-1.5">Create Account</h1>
+      <p className="text-muted text-sm mb-8 text-center">Sign up to access your wallet</p>
 
       <form onSubmit={handleSignup} className="w-full flex flex-col gap-4">
         <div className="flex flex-col gap-1.5">
@@ -76,26 +77,46 @@ export function SignupView({ onSuccess, onBack }: SignupViewProps) {
 
         <div className="flex flex-col gap-1.5">
           <label className="text-sm text-muted px-1">Password</label>
-          <input
-            type="password"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            className="w-full bg-card border border-border rounded-xl px-4 py-3.5 text-foreground focus:outline-none focus:border-primary transition-colors"
-            placeholder="At least 6 characters"
-            autoComplete="new-password"
-          />
+          <div className="relative">
+            <input
+              type={showPassword ? 'text' : 'password'}
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              className="w-full bg-card border border-border rounded-xl px-4 py-3.5 pr-12 text-foreground focus:outline-none focus:border-primary transition-colors"
+              placeholder="At least 6 characters"
+              autoComplete="new-password"
+            />
+            <button
+              type="button"
+              onClick={() => setShowPassword(v => !v)}
+              className="absolute right-3.5 top-1/2 -translate-y-1/2 text-muted hover:text-foreground transition-colors p-1"
+              tabIndex={-1}
+            >
+              {showPassword ? <EyeOff className="w-4.5 h-4.5" /> : <Eye className="w-4.5 h-4.5" />}
+            </button>
+          </div>
         </div>
 
         <div className="flex flex-col gap-1.5">
           <label className="text-sm text-muted px-1">Confirm Password</label>
-          <input
-            type="password"
-            value={confirm}
-            onChange={(e) => setConfirm(e.target.value)}
-            className="w-full bg-card border border-border rounded-xl px-4 py-3.5 text-foreground focus:outline-none focus:border-primary transition-colors"
-            placeholder="Repeat your password"
-            autoComplete="new-password"
-          />
+          <div className="relative">
+            <input
+              type={showConfirm ? 'text' : 'password'}
+              value={confirm}
+              onChange={(e) => setConfirm(e.target.value)}
+              className="w-full bg-card border border-border rounded-xl px-4 py-3.5 pr-12 text-foreground focus:outline-none focus:border-primary transition-colors"
+              placeholder="Repeat your password"
+              autoComplete="new-password"
+            />
+            <button
+              type="button"
+              onClick={() => setShowConfirm(v => !v)}
+              className="absolute right-3.5 top-1/2 -translate-y-1/2 text-muted hover:text-foreground transition-colors p-1"
+              tabIndex={-1}
+            >
+              {showConfirm ? <EyeOff className="w-4.5 h-4.5" /> : <Eye className="w-4.5 h-4.5" />}
+            </button>
+          </div>
         </div>
 
         {error && (
@@ -105,7 +126,7 @@ export function SignupView({ onSuccess, onBack }: SignupViewProps) {
         <button
           type="submit"
           disabled={loading}
-          className="w-full bg-primary hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed text-white font-medium rounded-xl px-4 py-4 mt-4 transition-colors shadow-lg active:scale-[0.98]"
+          className="w-full bg-primary hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed text-white font-medium rounded-xl px-4 py-4 mt-3 transition-colors shadow-lg active:scale-[0.98]"
         >
           {loading ? 'Creating account…' : 'Sign Up'}
         </button>

@@ -1,5 +1,5 @@
 from pydantic import BaseModel, Field
-from typing import Optional
+from typing import Optional, List
 
 
 # ── Auth ─────────────────────────────────────────────────────────────────────
@@ -16,11 +16,15 @@ class SignupRequest(BaseModel):
 
 class AuthResponse(BaseModel):
     username: str
-    role: str  # "user" | "admin"
+    role: str
+    user_id: Optional[int] = None
 
+
+# ── Wallet ────────────────────────────────────────────────────────────────────
 
 class WalletResponse(BaseModel):
     id: int
+    user_id: Optional[int] = None
     btc: float
     eth: float
     usdt_trc20: float
@@ -40,8 +44,11 @@ class WalletUpdate(BaseModel):
     trx: float = Field(ge=0)
 
 
+# ── Transactions ──────────────────────────────────────────────────────────────
+
 class TransactionResponse(BaseModel):
     id: int
+    user_id: Optional[int] = None
     asset: str
     type: str
     change: float
@@ -55,6 +62,39 @@ class TransactionCreate(BaseModel):
     amount: float = Field(gt=0, description="Must be a positive number")
     address: str = Field(min_length=1)
 
+
+# ── Notifications ─────────────────────────────────────────────────────────────
+
+class NotificationResponse(BaseModel):
+    id: int
+    user_id: int
+    message: str
+    is_read: bool
+    created_at: str
+
+    model_config = {"from_attributes": True}
+
+
+# ── Users ─────────────────────────────────────────────────────────────────────
+
+class UserInfo(BaseModel):
+    id: int
+    username: str
+    role: str
+
+    model_config = {"from_attributes": True}
+
+
+class UserWithWallet(BaseModel):
+    id: int
+    username: str
+    role: str
+    wallet: Optional[WalletResponse] = None
+
+    model_config = {"from_attributes": True}
+
+
+# ── Settings ──────────────────────────────────────────────────────────────────
 
 class SettingsResponse(BaseModel):
     id: int
@@ -71,6 +111,12 @@ class SettingsResponse(BaseModel):
     deposit_address_usdt_erc20: Optional[str] = None
     deposit_address_trx: Optional[str] = None
     auto_approve: bool = False
+    withdrawal_fee_btc: float = 0.0
+    withdrawal_fee_eth: float = 0.0
+    withdrawal_fee_usdt_trc20: float = 0.0
+    withdrawal_fee_usdt_bep20: float = 0.0
+    withdrawal_fee_usdt_erc20: float = 0.0
+    withdrawal_fee_trx: float = 0.0
 
     model_config = {"from_attributes": True}
 
@@ -89,3 +135,9 @@ class SettingsUpdate(BaseModel):
     deposit_address_usdt_erc20: Optional[str] = Field(default=None)
     deposit_address_trx: Optional[str] = Field(default=None)
     auto_approve: Optional[bool] = Field(default=None)
+    withdrawal_fee_btc: Optional[float] = Field(default=None, ge=0)
+    withdrawal_fee_eth: Optional[float] = Field(default=None, ge=0)
+    withdrawal_fee_usdt_trc20: Optional[float] = Field(default=None, ge=0)
+    withdrawal_fee_usdt_bep20: Optional[float] = Field(default=None, ge=0)
+    withdrawal_fee_usdt_erc20: Optional[float] = Field(default=None, ge=0)
+    withdrawal_fee_trx: Optional[float] = Field(default=None, ge=0)

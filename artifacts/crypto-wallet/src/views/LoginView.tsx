@@ -1,15 +1,16 @@
 import React, { useState } from 'react';
-import { Lock } from 'lucide-react';
+import { Eye, EyeOff, Lock } from 'lucide-react';
 import { api } from '../api';
 
 interface LoginViewProps {
-  onLogin: (role: 'user' | 'admin') => void;
+  onLogin: (username: string, role: string, userId: number | null) => void;
   onSignup: () => void;
 }
 
 export function LoginView({ onLogin, onSignup }: LoginViewProps) {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
 
@@ -19,7 +20,7 @@ export function LoginView({ onLogin, onSignup }: LoginViewProps) {
     setLoading(true);
     try {
       const auth = await api.login(username.trim(), password);
-      onLogin(auth.role as 'user' | 'admin');
+      onLogin(auth.username, auth.role, auth.user_id);
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'Invalid username or password.');
     } finally {
@@ -29,12 +30,12 @@ export function LoginView({ onLogin, onSignup }: LoginViewProps) {
 
   return (
     <div className="flex flex-col h-full p-6 bg-background items-center justify-center">
-      <div className="w-16 h-16 bg-card rounded-full flex items-center justify-center mb-6 border border-border shadow-lg">
+      <div className="w-16 h-16 bg-card rounded-full flex items-center justify-center mb-5 border border-border shadow-lg">
         <Lock className="w-8 h-8 text-primary" />
       </div>
 
-      <h1 className="text-2xl font-semibold text-foreground mb-2">Secured Access</h1>
-      <p className="text-muted text-sm mb-10 text-center">Enter credentials to access your wallet</p>
+      <h1 className="text-2xl font-semibold text-foreground mb-1.5">Secured Access</h1>
+      <p className="text-muted text-sm mb-8 text-center">Enter credentials to access your wallet</p>
 
       <form onSubmit={handleLogin} className="w-full flex flex-col gap-4">
         <div className="flex flex-col gap-1.5">
@@ -51,14 +52,24 @@ export function LoginView({ onLogin, onSignup }: LoginViewProps) {
 
         <div className="flex flex-col gap-1.5">
           <label className="text-sm text-muted px-1">Password</label>
-          <input
-            type="password"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            className="w-full bg-card border border-border rounded-xl px-4 py-3.5 text-foreground focus:outline-none focus:border-primary transition-colors"
-            placeholder="Password"
-            autoComplete="current-password"
-          />
+          <div className="relative">
+            <input
+              type={showPassword ? 'text' : 'password'}
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              className="w-full bg-card border border-border rounded-xl px-4 py-3.5 pr-12 text-foreground focus:outline-none focus:border-primary transition-colors"
+              placeholder="Password"
+              autoComplete="current-password"
+            />
+            <button
+              type="button"
+              onClick={() => setShowPassword(v => !v)}
+              className="absolute right-3.5 top-1/2 -translate-y-1/2 text-muted hover:text-foreground transition-colors p-1"
+              tabIndex={-1}
+            >
+              {showPassword ? <EyeOff className="w-4.5 h-4.5" /> : <Eye className="w-4.5 h-4.5" />}
+            </button>
+          </div>
         </div>
 
         {error && (
@@ -68,7 +79,7 @@ export function LoginView({ onLogin, onSignup }: LoginViewProps) {
         <button
           type="submit"
           disabled={loading}
-          className="w-full bg-success hover:bg-success/90 disabled:opacity-50 disabled:cursor-not-allowed text-white font-medium rounded-xl px-4 py-4 mt-4 transition-colors shadow-lg active:scale-[0.98]"
+          className="w-full bg-success hover:bg-success/90 disabled:opacity-50 disabled:cursor-not-allowed text-white font-medium rounded-xl px-4 py-4 mt-3 transition-colors shadow-lg active:scale-[0.98]"
         >
           {loading ? 'Connecting…' : 'Login'}
         </button>
