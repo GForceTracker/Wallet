@@ -22,16 +22,30 @@ export class ApiError extends Error {
 async function req<T>(path: string, options?: RequestInit): Promise<T> {
   const defaultHeaders: Record<string, string> = { "Content-Type": "application/json" };
   if (_currentUsername) defaultHeaders["X-Username"] = _currentUsername;
-  const res = await fetch(`${BASE}${path}`, {
-    ...options,
-    headers: { ...defaultHeaders, ...(options?.headers as Record<string, string> | undefined ?? {}) },
-  });
-  if (!res.ok) {
-    const body = await res.json().catch(() => ({ detail: res.statusText }));
-    throw new ApiError(body.detail ?? "Request failed", res.status);
+
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 15_000);
+
+  try {
+    const res = await fetch(`${BASE}${path}`, {
+      ...options,
+      signal: controller.signal,
+      headers: { ...defaultHeaders, ...(options?.headers as Record<string, string> | undefined ?? {}) },
+    });
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({ detail: res.statusText }));
+      throw new ApiError(body.detail ?? "Request failed", res.status);
+    }
+    if (res.status === 204) return undefined as unknown as T;
+    return res.json() as Promise<T>;
+  } catch (err) {
+    if (err instanceof Error && err.name === "AbortError") {
+      throw new ApiError("Request timed out. Please try again.", 408);
+    }
+    throw err;
+  } finally {
+    clearTimeout(timer);
   }
-  if (res.status === 204) return undefined as unknown as T;
-  return res.json() as Promise<T>;
 }
 
 export interface WalletData {

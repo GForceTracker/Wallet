@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Eye, EyeOff } from 'lucide-react';
 import { TrantLogo } from '../components/TrantLogo';
 import { api } from '../api';
@@ -14,11 +14,28 @@ export function LoginView({ onLogin, onSignup }: LoginViewProps) {
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  const loadingRef = useRef(false);
+
+  // iOS PWA: when the app is backgrounded then resumed, any in-flight fetch
+  // gets killed but the loading state stays true, permanently disabling the
+  // button. Reset it the moment the page becomes visible again.
+  useEffect(() => {
+    const onVisible = () => {
+      if (document.visibilityState === 'visible' && loadingRef.current) {
+        setLoading(false);
+        loadingRef.current = false;
+        setError('Connection lost. Please try again.');
+      }
+    };
+    document.addEventListener('visibilitychange', onVisible);
+    return () => document.removeEventListener('visibilitychange', onVisible);
+  }, []);
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
     setLoading(true);
+    loadingRef.current = true;
     try {
       const auth = await api.login(username.trim(), password);
       onLogin(auth.username, auth.role, auth.user_id);
@@ -26,6 +43,7 @@ export function LoginView({ onLogin, onSignup }: LoginViewProps) {
       setError(err instanceof Error ? err.message : 'Invalid username or password.');
     } finally {
       setLoading(false);
+      loadingRef.current = false;
     }
   };
 
