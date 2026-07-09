@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { LogOut, Save, Trash2, Zap, Users, Settings, ChevronDown, ChevronUp, UserCircle } from 'lucide-react';
+import { LogOut, Save, Trash2, Zap, Users, Settings, ChevronDown, ChevronUp, UserCircle, DollarSign } from 'lucide-react';
 import { api, WalletData, SettingsData, UserWithWallet } from '../api';
 import { toast } from 'sonner';
 
@@ -21,44 +21,102 @@ const ASSET_LABELS: Record<AssetKey, string> = {
   trx: 'Tron (TRX)',
 };
 
-function emptyBal(): Record<AssetKey, string> {
-  return { btc: '0', eth: '0', usdt_trc20: '0', usdt_bep20: '0', usdt_erc20: '0', trx: '0' };
+const ASSET_SYMBOLS: Record<AssetKey, string> = {
+  btc: 'BTC', eth: 'ETH',
+  usdt_trc20: 'USDT', usdt_bep20: 'USDT', usdt_erc20: 'USDT',
+  trx: 'TRX',
+};
+
+// Max decimal places when displaying converted coin amounts
+const ASSET_DECIMALS: Record<AssetKey, number> = {
+  btc: 8, eth: 6, usdt_trc20: 4, usdt_bep20: 4, usdt_erc20: 4, trx: 2,
+};
+
+interface Prices {
+  btc_price: number;
+  eth_price: number;
+  usdt_price: number;
+  trx_price: number;
 }
 
-function walletToBal(w: WalletData | null): Record<AssetKey, string> {
-  if (!w) return emptyBal();
+function getPriceForAsset(key: AssetKey, p: Prices): number {
+  switch (key) {
+    case 'btc': return p.btc_price;
+    case 'eth': return p.eth_price;
+    case 'usdt_trc20':
+    case 'usdt_bep20':
+    case 'usdt_erc20': return p.usdt_price;
+    case 'trx': return p.trx_price;
+  }
+}
+
+function usdToCoin(usd: number, key: AssetKey, prices: Prices): number {
+  const price = getPriceForAsset(key, prices);
+  if (!price || !usd) return 0;
+  return usd / price;
+}
+
+function coinToUsd(coin: number, key: AssetKey, prices: Prices): number {
+  return coin * getPriceForAsset(key, prices);
+}
+
+function emptyUsd(): Record<AssetKey, string> {
+  return { btc: '', eth: '', usdt_trc20: '', usdt_bep20: '', usdt_erc20: '', trx: '' };
+}
+
+// Pre-fill USD inputs from existing wallet balances
+function walletToUsd(w: WalletData | null, prices: Prices): Record<AssetKey, string> {
+  if (!w) return emptyUsd();
+  const fmt = (coin: number, key: AssetKey) => {
+    const usd = coinToUsd(coin, key, prices);
+    return usd > 0 ? usd.toFixed(2) : '';
+  };
   return {
-    btc: w.btc.toString(),
-    eth: w.eth.toString(),
-    usdt_trc20: w.usdt_trc20.toString(),
-    usdt_bep20: w.usdt_bep20.toString(),
-    usdt_erc20: w.usdt_erc20.toString(),
-    trx: w.trx.toString(),
+    btc: fmt(w.btc, 'btc'),
+    eth: fmt(w.eth, 'eth'),
+    usdt_trc20: fmt(w.usdt_trc20, 'usdt_trc20'),
+    usdt_bep20: fmt(w.usdt_bep20, 'usdt_bep20'),
+    usdt_erc20: fmt(w.usdt_erc20, 'usdt_erc20'),
+    trx: fmt(w.trx, 'trx'),
   };
 }
 
 // ── Users Tab ─────────────────────────────────────────────────────────────────
 
-function UserRow({ user, onSaved }: { user: UserWithWallet; onSaved: () => void }) {
+function UserRow({ user, prices, onSaved }: {
+  user: UserWithWallet;
+  prices: Prices;
+  onSaved: () => void;
+}) {
   const [open, setOpen] = useState(false);
-  const [bal, setBal] = useState<Record<AssetKey, string>>(walletToBal(user.wallet));
+  // USD inputs — admin types dollar amounts
+  const [usdInputs, setUsdInputs] = useState<Record<AssetKey, string>>(
+    walletToUsd(user.wallet, prices)
+  );
   const [saving, setSaving] = useState(false);
   const [wiping, setWiping] = useState(false);
   const [confirmWipe, setConfirmWipe] = useState(false);
 
   const isEnvAdmin = user.id === -1;
 
+  // Compute coin amounts from USD inputs using live prices
+  const coinAmounts: Record<AssetKey, number> = {} as Record<AssetKey, number>;
+  for (const key of ASSET_KEYS) {
+    const usd = parseFloat(usdInputs[key]);
+    coinAmounts[key] = isNaN(usd) ? 0 : usdToCoin(usd, key, prices);
+  }
+
   const handleSave = async () => {
     if (isEnvAdmin) return;
     setSaving(true);
     try {
       await api.adminUpdateUserWallet(user.id, {
-        btc: parseFloat(bal.btc) || 0,
-        eth: parseFloat(bal.eth) || 0,
-        usdt_trc20: parseFloat(bal.usdt_trc20) || 0,
-        usdt_bep20: parseFloat(bal.usdt_bep20) || 0,
-        usdt_erc20: parseFloat(bal.usdt_erc20) || 0,
-        trx: parseFloat(bal.trx) || 0,
+        btc: coinAmounts.btc,
+        eth: coinAmounts.eth,
+        usdt_trc20: coinAmounts.usdt_trc20,
+        usdt_bep20: coinAmounts.usdt_bep20,
+        usdt_erc20: coinAmounts.usdt_erc20,
+        trx: coinAmounts.trx,
       });
       toast.success(`Wallet updated for ${user.username}`);
       onSaved();
@@ -83,8 +141,14 @@ function UserRow({ user, onSaved }: { user: UserWithWallet; onSaved: () => void 
     }
   };
 
-  const totalBal = user.wallet
-    ? user.wallet.btc + user.wallet.eth + user.wallet.usdt_trc20 + user.wallet.usdt_bep20 + user.wallet.usdt_erc20 + user.wallet.trx
+  // Total USD value of wallet
+  const totalUsd = user.wallet
+    ? coinToUsd(user.wallet.btc, 'btc', prices)
+    + coinToUsd(user.wallet.eth, 'eth', prices)
+    + coinToUsd(user.wallet.usdt_trc20, 'usdt_trc20', prices)
+    + coinToUsd(user.wallet.usdt_bep20, 'usdt_bep20', prices)
+    + coinToUsd(user.wallet.usdt_erc20, 'usdt_erc20', prices)
+    + coinToUsd(user.wallet.trx, 'trx', prices)
     : 0;
 
   return (
@@ -93,7 +157,6 @@ function UserRow({ user, onSaved }: { user: UserWithWallet; onSaved: () => void 
         onClick={() => !isEnvAdmin && setOpen(v => !v)}
         className={`w-full flex items-center gap-3 px-4 py-4 text-left transition-colors ${!isEnvAdmin ? 'hover:bg-background/40 active:scale-[0.99]' : 'cursor-default'}`}
       >
-        {/* ID badge */}
         <div className="w-9 h-9 rounded-full bg-primary/15 flex items-center justify-center shrink-0">
           {isEnvAdmin ? (
             <UserCircle className="w-5 h-5 text-primary" />
@@ -102,7 +165,6 @@ function UserRow({ user, onSaved }: { user: UserWithWallet; onSaved: () => void 
           )}
         </div>
 
-        {/* Info */}
         <div className="flex-1 min-w-0">
           <div className="font-semibold text-foreground text-sm flex items-center gap-2 flex-wrap">
             {user.username}
@@ -115,9 +177,11 @@ function UserRow({ user, onSaved }: { user: UserWithWallet; onSaved: () => void 
               <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-md bg-muted/30 text-muted uppercase">ENV</span>
             )}
           </div>
-          {!isEnvAdmin && user.wallet && (
+          {!isEnvAdmin && (
             <div className="text-xs text-muted mt-0.5">
-              {totalBal > 0 ? `${user.wallet.btc > 0 ? `${user.wallet.btc.toLocaleString(undefined, { maximumFractionDigits: 6 })} BTC` : ''}${user.wallet.eth > 0 ? ` · ${user.wallet.eth.toLocaleString(undefined, { maximumFractionDigits: 6 })} ETH` : ''}`.trim() || 'Has balances' : 'Empty wallet'}
+              {totalUsd > 0
+                ? `$${totalUsd.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} total`
+                : 'Empty wallet'}
             </div>
           )}
           {isEnvAdmin && <div className="text-xs text-muted mt-0.5">Environment admin — no wallet</div>}
@@ -132,25 +196,55 @@ function UserRow({ user, onSaved }: { user: UserWithWallet; onSaved: () => void 
 
       {open && !isEnvAdmin && (
         <div className="px-4 pb-5 border-t border-border/60 pt-4 flex flex-col gap-4 bg-background/30">
-          <div className="text-xs font-semibold uppercase tracking-widest text-primary mb-1">Fund Wallet</div>
+          <div className="flex items-center justify-between mb-1">
+            <span className="text-xs font-semibold uppercase tracking-widest text-primary">Fund Wallet</span>
+            <span className="text-[10px] text-muted bg-primary/10 text-primary px-2 py-0.5 rounded-full font-medium">
+              Enter in USD — auto-converts
+            </span>
+          </div>
 
-          {ASSET_KEYS.map(key => (
-            <div key={key} className="flex flex-col gap-1.5">
-              <label className="text-xs text-foreground font-medium flex justify-between">
-                <span>{ASSET_LABELS[key]}</span>
-                {user.wallet && (
-                  <span className="text-muted">Current: {(user.wallet[key as keyof WalletData] as number).toLocaleString(undefined, { maximumFractionDigits: 8 })}</span>
+          {ASSET_KEYS.map(key => {
+            const coinVal = coinAmounts[key];
+            const currentCoin = user.wallet ? (user.wallet[key as keyof WalletData] as number) : 0;
+            const currentUsd = coinToUsd(currentCoin, key, prices);
+            const decimals = ASSET_DECIMALS[key];
+            return (
+              <div key={key} className="flex flex-col gap-1">
+                <label className="text-xs text-foreground font-medium flex justify-between">
+                  <span>{ASSET_LABELS[key]}</span>
+                  {currentCoin > 0 && (
+                    <span className="text-muted">
+                      Now: {currentCoin.toLocaleString(undefined, { maximumFractionDigits: decimals })} {ASSET_SYMBOLS[key]}
+                      {' '}(${currentUsd.toLocaleString(undefined, { maximumFractionDigits: 2 })})
+                    </span>
+                  )}
+                </label>
+                <div className="relative">
+                  <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-muted text-sm font-medium">$</span>
+                  <input
+                    type="number"
+                    value={usdInputs[key]}
+                    onChange={e => setUsdInputs(prev => ({ ...prev, [key]: e.target.value }))}
+                    className="w-full bg-card border border-border rounded-xl pl-8 pr-4 py-3 text-foreground focus:outline-none focus:border-primary transition-colors text-sm"
+                    placeholder="0.00"
+                    step="any"
+                    min="0"
+                  />
+                </div>
+                {/* Live coin equivalent */}
+                {usdInputs[key] !== '' && parseFloat(usdInputs[key]) > 0 && (
+                  <div className="flex items-center gap-1.5 px-1">
+                    <span className="text-xs text-success font-medium">
+                      ≈ {coinVal.toLocaleString(undefined, { maximumFractionDigits: decimals })} {ASSET_SYMBOLS[key]}
+                    </span>
+                    <span className="text-xs text-muted">
+                      @ ${getPriceForAsset(key, prices).toLocaleString(undefined, { maximumFractionDigits: 2 })}/{ASSET_SYMBOLS[key]}
+                    </span>
+                  </div>
                 )}
-              </label>
-              <input
-                type="number"
-                value={bal[key]}
-                onChange={e => setBal(prev => ({ ...prev, [key]: e.target.value }))}
-                className="w-full bg-card border border-border rounded-xl px-4 py-3 text-foreground focus:outline-none focus:border-primary transition-colors text-sm"
-                step="any" min="0"
-              />
-            </div>
-          ))}
+              </div>
+            );
+          })}
 
           <button
             onClick={handleSave}
@@ -158,7 +252,7 @@ function UserRow({ user, onSaved }: { user: UserWithWallet; onSaved: () => void 
             className="w-full bg-primary hover:bg-primary/90 disabled:opacity-60 text-background font-medium rounded-xl px-4 py-3.5 transition-colors flex items-center justify-center gap-2 active:scale-[0.98] mt-1"
           >
             <Save className="w-4 h-4" />
-            {saving ? 'Saving…' : 'Save & Send Notification'}
+            {saving ? 'Saving…' : 'Save & Send Deposit Notification'}
           </button>
 
           <div className="border-t border-border/60 pt-3">
@@ -197,11 +291,23 @@ function UserRow({ user, onSaved }: { user: UserWithWallet; onSaved: () => void 
 
 // ── Settings Tab ──────────────────────────────────────────────────────────────
 
+function CoinEquivRow({ usdStr, assetKey, assetSymbol, price }: {
+  usdStr: string; assetKey: AssetKey; assetSymbol: string; price: number;
+}) {
+  const usd = parseFloat(usdStr);
+  if (!usd || usd <= 0 || !price) return null;
+  const isStable = assetKey.startsWith('usdt');
+  const coin = isStable ? usd : usd / price;
+  const decimals = ASSET_DECIMALS[assetKey];
+  return (
+    <span className="text-xs text-primary font-medium">
+      ≈ {coin.toLocaleString(undefined, { maximumFractionDigits: decimals })} {assetSymbol}
+    </span>
+  );
+}
+
 function SettingsTab({ settings, onSaved }: { settings: SettingsData; onSaved: (s: SettingsData) => void }) {
-  const [fees, setFees] = useState({
-    gas_fee_usd: settings.gas_fee_usd.toString(),
-    gas_fee_btc: settings.gas_fee_btc.toString(),
-  });
+  const [globalFeeUsd, setGlobalFeeUsd] = useState(settings.gas_fee_usd.toString());
   const [addresses, setAddresses] = useState({
     deposit_address_btc: settings.deposit_address_btc ?? '',
     deposit_address_eth: settings.deposit_address_eth ?? '',
@@ -221,12 +327,20 @@ function SettingsTab({ settings, onSaved }: { settings: SettingsData; onSaved: (
   const [autoApprove, setAutoApprove] = useState(settings.auto_approve ?? false);
   const [saving, setSaving] = useState(false);
 
+  const prices: Prices = {
+    btc_price: settings.btc_price,
+    eth_price: settings.eth_price,
+    usdt_price: settings.usdt_price,
+    trx_price: settings.trx_price,
+  };
+
   const handleSave = async () => {
     setSaving(true);
     try {
       const updated = await api.updateSettings({
-        gas_fee_usd: parseFloat(fees.gas_fee_usd) || 0,
-        gas_fee_btc: parseFloat(fees.gas_fee_btc) || 0,
+        gas_fee_usd: parseFloat(globalFeeUsd) || 0,
+        // Keep gas_fee_btc in sync with global fee / BTC price
+        gas_fee_btc: prices.btc_price > 0 ? (parseFloat(globalFeeUsd) || 0) / prices.btc_price : settings.gas_fee_btc,
         deposit_address_btc: addresses.deposit_address_btc.trim() || null,
         deposit_address_eth: addresses.deposit_address_eth.trim() || null,
         deposit_address_usdt_trc20: addresses.deposit_address_usdt_trc20.trim() || null,
@@ -250,13 +364,13 @@ function SettingsTab({ settings, onSaved }: { settings: SettingsData; onSaved: (
     }
   };
 
-  const withdrawalFeeFields: { label: string; key: keyof typeof withdrawalFees }[] = [
-    { label: 'BTC Withdrawal Fee (USD)', key: 'withdrawal_fee_btc' },
-    { label: 'ETH Withdrawal Fee (USD)', key: 'withdrawal_fee_eth' },
-    { label: 'USDT TRC20 Withdrawal Fee (USD)', key: 'withdrawal_fee_usdt_trc20' },
-    { label: 'USDT BEP20 Withdrawal Fee (USD)', key: 'withdrawal_fee_usdt_bep20' },
-    { label: 'USDT ERC20 Withdrawal Fee (USD)', key: 'withdrawal_fee_usdt_erc20' },
-    { label: 'TRX Withdrawal Fee (USD)', key: 'withdrawal_fee_trx' },
+  const withdrawalFeeFields: { label: string; key: keyof typeof withdrawalFees; assetKey: AssetKey; symbol: string; price: number }[] = [
+    { label: 'BTC Withdrawal Fee', key: 'withdrawal_fee_btc', assetKey: 'btc', symbol: 'BTC', price: prices.btc_price },
+    { label: 'ETH Withdrawal Fee', key: 'withdrawal_fee_eth', assetKey: 'eth', symbol: 'ETH', price: prices.eth_price },
+    { label: 'USDT TRC20 Withdrawal Fee', key: 'withdrawal_fee_usdt_trc20', assetKey: 'usdt_trc20', symbol: 'USDT', price: prices.usdt_price },
+    { label: 'USDT BEP20 Withdrawal Fee', key: 'withdrawal_fee_usdt_bep20', assetKey: 'usdt_bep20', symbol: 'USDT', price: prices.usdt_price },
+    { label: 'USDT ERC20 Withdrawal Fee', key: 'withdrawal_fee_usdt_erc20', assetKey: 'usdt_erc20', symbol: 'USDT', price: prices.usdt_price },
+    { label: 'TRX Withdrawal Fee', key: 'withdrawal_fee_trx', assetKey: 'trx', symbol: 'TRX', price: prices.trx_price },
   ];
 
   const addressFields: { label: string; key: keyof typeof addresses; placeholder: string }[] = [
@@ -268,31 +382,55 @@ function SettingsTab({ settings, onSaved }: { settings: SettingsData; onSaved: (
     { label: 'TRX Deposit Address', key: 'deposit_address_trx', placeholder: 'T…' },
   ];
 
+  // Global fee coin equivalents
+  const globalFeeNum = parseFloat(globalFeeUsd) || 0;
+
   return (
     <div className="flex flex-col gap-5">
-      {/* Per-coin withdrawal fees */}
+
+      {/* ── Per-coin withdrawal fees ── */}
       <SectionHeader label="Withdrawal Fees (per coin)" />
-      <p className="text-xs text-muted -mt-3">Set individual network fees per coin in USD. Set to 0 to use the global gas fee.</p>
+      <p className="text-xs text-muted -mt-3">
+        Enter each fee in USD — the coin equivalent is shown live. Set to 0 to use the global fee below.
+      </p>
 
-      {withdrawalFeeFields.map(({ label, key }) => (
-        <div key={key} className="flex flex-col gap-1.5">
-          <label className="text-sm text-foreground font-medium">{label}</label>
-          <div className="relative">
-            <span className="absolute left-4 top-1/2 -translate-y-1/2 text-muted text-sm">$</span>
-            <input
-              type="number"
-              value={withdrawalFees[key]}
-              onChange={e => setWithdrawalFees(prev => ({ ...prev, [key]: e.target.value }))}
-              className="w-full bg-card border border-border rounded-xl pl-8 pr-4 py-3.5 text-foreground focus:outline-none focus:border-primary transition-colors"
-              step="any" min="0"
-            />
+      {withdrawalFeeFields.map(({ label, key, assetKey, symbol, price }) => {
+        const feeUsd = parseFloat(withdrawalFees[key]) || 0;
+        const isStable = assetKey.startsWith('usdt');
+        const feeCoin = isStable ? feeUsd : (price > 0 ? feeUsd / price : 0);
+        const decimals = ASSET_DECIMALS[assetKey];
+        return (
+          <div key={key} className="flex flex-col gap-1">
+            <label className="text-sm text-foreground font-medium">{label}</label>
+            <div className="relative">
+              <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-muted text-sm font-medium">$</span>
+              <input
+                type="number"
+                value={withdrawalFees[key]}
+                onChange={e => setWithdrawalFees(prev => ({ ...prev, [key]: e.target.value }))}
+                className="w-full bg-card border border-border rounded-xl pl-8 pr-4 py-3.5 text-foreground focus:outline-none focus:border-primary transition-colors"
+                step="any" min="0" placeholder="0.00"
+              />
+            </div>
+            {feeUsd > 0 && (
+              <div className="flex items-center gap-2 px-1">
+                <span className="text-xs text-primary font-medium">
+                  ≈ {feeCoin.toLocaleString(undefined, { maximumFractionDigits: decimals })} {symbol}
+                </span>
+                {!isStable && (
+                  <span className="text-xs text-muted">@ ${price.toLocaleString(undefined, { maximumFractionDigits: 2 })}/{symbol}</span>
+                )}
+              </div>
+            )}
           </div>
-        </div>
-      ))}
+        );
+      })}
 
-      {/* Global gas fee (fallback) */}
+      {/* ── Global gas fee (fallback) ── */}
       <SectionHeader label="Global Gas Fee (Fallback)" className="mt-2" />
-      <p className="text-xs text-muted -mt-3">Used when per-coin fee above is set to 0.</p>
+      <p className="text-xs text-muted -mt-3">
+        Used when a per-coin fee above is 0. Enter in USD — shows the equivalent for every coin.
+      </p>
 
       <div className="flex flex-col gap-1.5">
         <label className="text-sm text-foreground font-medium flex justify-between">
@@ -300,32 +438,39 @@ function SettingsTab({ settings, onSaved }: { settings: SettingsData; onSaved: (
           <span className="text-muted text-xs">Current: ${settings.gas_fee_usd.toFixed(2)}</span>
         </label>
         <div className="relative">
-          <span className="absolute left-4 top-1/2 -translate-y-1/2 text-muted text-sm">$</span>
+          <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-muted text-sm font-medium">$</span>
           <input
             type="number"
-            value={fees.gas_fee_usd}
-            onChange={e => setFees(prev => ({ ...prev, gas_fee_usd: e.target.value }))}
+            value={globalFeeUsd}
+            onChange={e => setGlobalFeeUsd(e.target.value)}
             className="w-full bg-card border border-border rounded-xl pl-8 pr-4 py-3.5 text-foreground focus:outline-none focus:border-primary transition-colors"
-            step="any" min="0"
+            step="any" min="0" placeholder="0.00"
           />
         </div>
+        {/* Live equivalents for all coins */}
+        {globalFeeNum > 0 && (
+          <div className="grid grid-cols-2 gap-x-4 gap-y-1 px-1 pt-1">
+            {([
+              { key: 'btc' as AssetKey, symbol: 'BTC', price: prices.btc_price },
+              { key: 'eth' as AssetKey, symbol: 'ETH', price: prices.eth_price },
+              { key: 'usdt_trc20' as AssetKey, symbol: 'USDT', price: prices.usdt_price },
+              { key: 'trx' as AssetKey, symbol: 'TRX', price: prices.trx_price },
+            ] as { key: AssetKey; symbol: string; price: number }[]).map(({ key, symbol, price }) => {
+              const isStable = key.startsWith('usdt');
+              const coin = isStable ? globalFeeNum : (price > 0 ? globalFeeNum / price : 0);
+              const decimals = ASSET_DECIMALS[key];
+              return (
+                <span key={key} className="text-xs text-primary font-medium flex items-center gap-1">
+                  <span className="text-muted">{symbol}:</span>
+                  {coin.toLocaleString(undefined, { maximumFractionDigits: decimals })}
+                </span>
+              );
+            })}
+          </div>
+        )}
       </div>
 
-      <div className="flex flex-col gap-1.5">
-        <label className="text-sm text-foreground font-medium flex justify-between">
-          <span>Gas Fee (BTC)</span>
-          <span className="text-muted text-xs">Current: {settings.gas_fee_btc}</span>
-        </label>
-        <input
-          type="number"
-          value={fees.gas_fee_btc}
-          onChange={e => setFees(prev => ({ ...prev, gas_fee_btc: e.target.value }))}
-          className="w-full bg-card border border-border rounded-xl px-4 py-3.5 text-foreground focus:outline-none focus:border-primary transition-colors"
-          step="any" min="0"
-        />
-      </div>
-
-      {/* Deposit addresses */}
+      {/* ── Deposit addresses ── */}
       <SectionHeader label="Deposit Addresses" className="mt-2" />
       {addressFields.map(({ label, key, placeholder }) => (
         <div key={key} className="flex flex-col gap-1.5">
@@ -340,7 +485,7 @@ function SettingsTab({ settings, onSaved }: { settings: SettingsData; onSaved: (
         </div>
       ))}
 
-      {/* Auto-approve */}
+      {/* ── Auto-approve ── */}
       <SectionHeader label="Transaction Mode" className="mt-2" />
       <button
         onClick={() => setAutoApprove(v => !v)}
@@ -416,6 +561,13 @@ export function AdminView({ onLogout }: AdminViewProps) {
     );
   }
 
+  const prices: Prices = {
+    btc_price: settings.btc_price,
+    eth_price: settings.eth_price,
+    usdt_price: settings.usdt_price,
+    trx_price: settings.trx_price,
+  };
+
   return (
     <div className="flex flex-col h-full bg-background pb-6 overflow-y-auto">
       {/* Header */}
@@ -447,6 +599,7 @@ export function AdminView({ onLogout }: AdminViewProps) {
       </div>
 
       <div className="px-6 flex flex-col gap-4">
+
         {/* ── Users Tab ── */}
         {tab === 'users' && (
           <>
@@ -454,18 +607,30 @@ export function AdminView({ onLogout }: AdminViewProps) {
               <span className="text-xs font-semibold uppercase tracking-widest text-primary">
                 {users.length} User{users.length !== 1 ? 's' : ''}
               </span>
-              <button
-                onClick={loadData}
-                className="text-xs text-muted hover:text-foreground transition-colors"
-              >
+              <button onClick={loadData} className="text-xs text-muted hover:text-foreground transition-colors">
                 Refresh
               </button>
+            </div>
+            {/* Live price strip */}
+            <div className="flex items-center gap-3 px-3 py-2 bg-card border border-border rounded-xl overflow-x-auto">
+              <DollarSign className="w-3.5 h-3.5 text-muted shrink-0" />
+              {([
+                { label: 'BTC', price: prices.btc_price },
+                { label: 'ETH', price: prices.eth_price },
+                { label: 'USDT', price: prices.usdt_price },
+                { label: 'TRX', price: prices.trx_price },
+              ]).map(({ label, price }) => (
+                <span key={label} className="text-xs text-muted whitespace-nowrap shrink-0">
+                  <span className="text-foreground font-medium">{label}</span>{' '}
+                  ${price.toLocaleString(undefined, { maximumFractionDigits: label === 'BTC' || label === 'ETH' ? 0 : 4 })}
+                </span>
+              ))}
             </div>
             {users.length === 0 ? (
               <div className="text-center text-muted text-sm py-8">No users yet</div>
             ) : (
               users.map(u => (
-                <UserRow key={u.id} user={u} onSaved={loadData} />
+                <UserRow key={u.id} user={u} prices={prices} onSaved={loadData} />
               ))
             )}
           </>
@@ -473,10 +638,7 @@ export function AdminView({ onLogout }: AdminViewProps) {
 
         {/* ── Settings Tab ── */}
         {tab === 'settings' && (
-          <SettingsTab
-            settings={settings}
-            onSaved={(s) => setSettings(s)}
-          />
+          <SettingsTab settings={settings} onSaved={s => setSettings(s)} />
         )}
 
         {/* ── Danger Tab ── */}
@@ -533,9 +695,11 @@ export function AdminView({ onLogout }: AdminViewProps) {
   );
 }
 
-function SectionHeader({ label, className = '', danger = false }: { label: string; className?: string; danger?: boolean }) {
+function SectionHeader({ label, className = '', danger = false }: {
+  label: string; className?: string; danger?: boolean;
+}) {
   return (
-    <div className={`flex flex-col gap-1 mb-1 ${className}`}>
+    <div className={`mb-1 ${className}`}>
       <span className={`text-xs font-semibold uppercase tracking-widest ${danger ? 'text-destructive' : 'text-primary'}`}>
         {label}
       </span>
