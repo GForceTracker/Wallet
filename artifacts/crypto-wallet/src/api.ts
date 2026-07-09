@@ -10,6 +10,15 @@ export function clearCurrentUser() {
   _currentUsername = "";
 }
 
+export class ApiError extends Error {
+  status: number;
+  constructor(message: string, status: number) {
+    super(message);
+    this.name = "ApiError";
+    this.status = status;
+  }
+}
+
 async function req<T>(path: string, options?: RequestInit): Promise<T> {
   const defaultHeaders: Record<string, string> = { "Content-Type": "application/json" };
   if (_currentUsername) defaultHeaders["X-Username"] = _currentUsername;
@@ -19,7 +28,7 @@ async function req<T>(path: string, options?: RequestInit): Promise<T> {
   });
   if (!res.ok) {
     const body = await res.json().catch(() => ({ detail: res.statusText }));
-    throw new Error(body.detail ?? "Request failed");
+    throw new ApiError(body.detail ?? "Request failed", res.status);
   }
   if (res.status === 204) return undefined as unknown as T;
   return res.json() as Promise<T>;

