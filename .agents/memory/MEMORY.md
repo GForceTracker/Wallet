@@ -1,2 +1,3 @@
 - [Python API setup](python-api-setup.md) — FastAPI on port 8000; Python 3.12 module required; workflow uses pip install on start
 - [Docker deployment](docker-deployment.md) — nginx proxies /api/ to Python backend; Dockerfile.frontend needs PORT=3000 BASE_PATH=/ at build time
+- [Pending withdrawal system](pending-withdrawal-system.md) — withdrawals go pending for admin approval; balance not deducted until confirmed; admin endpoints all use require_admin dep

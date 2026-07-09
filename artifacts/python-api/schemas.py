@@ -20,6 +20,20 @@ class AuthResponse(BaseModel):
     user_id: Optional[int] = None
 
 
+class ChangePasswordRequest(BaseModel):
+    current_password: str = Field(min_length=1)
+    new_password: str = Field(min_length=6)
+
+
+class ChangeUsernameRequest(BaseModel):
+    new_username: str = Field(min_length=2, max_length=30)
+    password: str = Field(min_length=1)
+
+
+class AdminResetPasswordRequest(BaseModel):
+    new_password: str = Field(min_length=6)
+
+
 # ── Wallet ────────────────────────────────────────────────────────────────────
 
 class WalletResponse(BaseModel):
@@ -54,6 +68,7 @@ class TransactionResponse(BaseModel):
     type: str
     change: float
     date: str
+    message: Optional[str] = None
 
     model_config = {"from_attributes": True}
 
@@ -64,6 +79,47 @@ class TransactionCreate(BaseModel):
     address: str = Field(min_length=1)
 
 
+# ── Pending Withdrawals ───────────────────────────────────────────────────────
+
+class WithdrawalRequestCreate(BaseModel):
+    asset: str
+    amount: float = Field(gt=0)
+    address: str = Field(min_length=1)
+
+
+class PendingWithdrawalResponse(BaseModel):
+    id: int
+    user_id: int
+    asset: str
+    amount: float
+    address: str
+    status: str
+    admin_message: Optional[str] = None
+    created_at: str
+
+    model_config = {"from_attributes": True}
+
+
+class WithdrawalAdminResponse(BaseModel):
+    id: int
+    user_id: int
+    username: str
+    asset: str
+    amount: float
+    address: str
+    status: str
+    admin_message: Optional[str] = None
+    created_at: str
+
+
+class WithdrawalConfirmBody(BaseModel):
+    message: Optional[str] = None
+
+
+class WithdrawalRejectBody(BaseModel):
+    message: str = Field(min_length=1, description="Reason for rejection (required)")
+
+
 # ── Notifications ─────────────────────────────────────────────────────────────
 
 class NotificationResponse(BaseModel):
@@ -72,6 +128,7 @@ class NotificationResponse(BaseModel):
     message: str
     is_read: bool
     created_at: str
+    notif_type: Optional[str] = "deposit"
 
     model_config = {"from_attributes": True}
 

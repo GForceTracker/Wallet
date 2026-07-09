@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useRef } from 'react';
-import { Settings, Search, ArrowUpRight, ArrowDownRight, LogOut, Copy, X, Bell } from 'lucide-react';
+import { Settings, Search, ArrowUpRight, ArrowDownRight, LogOut, Copy, X, Bell, CheckCircle, XCircle } from 'lucide-react';
 import { SiBitcoin, SiEthereum, SiTether } from 'react-icons/si';
 import { TrantLogo } from '../components/TrantLogo';
 import { ViewState } from '../App';
@@ -101,20 +101,49 @@ function ReceiveModal({ settings, onClose }: ReceiveModalProps) {
   );
 }
 
-function DepositNotificationModal({ notification, onDismiss }: { notification: NotificationData; onDismiss: () => void }) {
+function NotificationModal({ notification, onDismiss }: { notification: NotificationData; onDismiss: () => void }) {
+  const type = notification.notif_type ?? 'deposit';
+  const isConfirmed = type === 'withdrawal_confirmed';
+  const isRejected = type === 'withdrawal_rejected';
+
+  const iconBg = isConfirmed
+    ? 'bg-success/15'
+    : isRejected
+    ? 'bg-destructive/15'
+    : 'bg-success/15';
+
+  const iconColor = isConfirmed
+    ? 'text-success'
+    : isRejected
+    ? 'text-destructive'
+    : 'text-success';
+
+  const title = isConfirmed
+    ? 'Withdrawal Confirmed!'
+    : isRejected
+    ? 'Withdrawal Rejected'
+    : 'Deposit Received!';
+
+  const btnClass = isRejected
+    ? 'bg-destructive hover:bg-destructive/90 text-white'
+    : 'bg-success hover:bg-success/90 text-white';
+
   return (
     <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/70 backdrop-blur-sm p-5">
       <div className="w-full max-w-[380px] bg-card border border-border rounded-3xl p-7 flex flex-col items-center gap-5 shadow-2xl">
-        <div className="w-16 h-16 rounded-full bg-success/15 flex items-center justify-center">
-          <ArrowDownRight className="w-8 h-8 text-success" />
+        <div className={`w-16 h-16 rounded-full ${iconBg} flex items-center justify-center`}>
+          {isRejected
+            ? <XCircle className={`w-8 h-8 ${iconColor}`} />
+            : <CheckCircle className={`w-8 h-8 ${iconColor}`} />
+          }
         </div>
         <div className="text-center flex flex-col gap-2">
-          <h2 className="text-xl font-bold text-foreground">Deposit Received!</h2>
+          <h2 className="text-xl font-bold text-foreground">{title}</h2>
           <p className="text-muted text-sm leading-relaxed">{notification.message}</p>
         </div>
         <button
           onClick={onDismiss}
-          className="w-full bg-success hover:bg-success/90 text-white font-semibold rounded-xl px-4 py-4 transition-colors active:scale-[0.98]"
+          className={`w-full font-semibold rounded-xl px-4 py-4 transition-colors active:scale-[0.98] ${btnClass}`}
         >
           Got it
         </button>
@@ -157,7 +186,7 @@ export function UserWalletView({ username, onNavigate, onLogout }: UserWalletVie
           const unseen = notifs.find(n => !seenIdsRef.current.has(n.id));
           if (unseen && !pendingNotif) {
             seenIdsRef.current.add(unseen.id);
-            // Refresh wallet balance immediately so it's already updated behind the popup
+            // Refresh wallet balance so it's already updated behind the popup
             api.getWallet().then(w => setWallet(w)).catch(() => {});
             setPendingNotif(unseen);
           }
@@ -314,7 +343,7 @@ export function UserWalletView({ username, onNavigate, onLogout }: UserWalletVie
       )}
 
       {pendingNotif && (
-        <DepositNotificationModal notification={pendingNotif} onDismiss={handleDismissNotif} />
+        <NotificationModal notification={pendingNotif} onDismiss={handleDismissNotif} />
       )}
     </>
   );

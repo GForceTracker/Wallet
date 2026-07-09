@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { ArrowLeft, ArrowUpRight, ArrowDownRight, Copy, X } from 'lucide-react';
+import { ArrowLeft, ArrowUpRight, ArrowDownRight, Copy, X, Clock, AlertCircle } from 'lucide-react';
 import { SiBitcoin, SiEthereum, SiTether } from 'react-icons/si';
 
 const TrxIcon = ({ size = 24 }: { size?: number }) => (
@@ -13,7 +13,7 @@ const TrxIcon = ({ size = 24 }: { size?: number }) => (
 
 import { ViewState } from '../App';
 import { AssetType } from '../store';
-import { api, WalletData, TransactionData, SettingsData } from '../api';
+import { api, WalletData, TransactionData, SettingsData, PendingWithdrawalData } from '../api';
 import { saveTxToStorage, loadTxFromStorage, mergeTx } from '../txStorage';
 import { toast } from 'sonner';
 
@@ -75,46 +75,97 @@ function ReceiveModal({ address, symbol, onClose }: ReceiveModalProps) {
   );
 }
 
+// Unified history item for display
+interface HistoryItem {
+  id: string;
+  type: string;
+  change: number;
+  date: string;
+  status?: string;
+  message?: string | null;
+  isPending?: boolean;
+  isRejected?: boolean;
+}
+
 export function AssetDetailsView({ asset, onNavigate }: AssetDetailsViewProps) {
   const [wallet, setWallet] = useState<WalletData | null>(null);
-  const [history, setHistory] = useState<TransactionData[]>([]);
+  const [history, setHistory] = useState<HistoryItem[]>([]);
   const [settings, setSettings] = useState<SettingsData | null>(null);
   const [loading, setLoading] = useState(true);
   const [showReceive, setShowReceive] = useState(false);
 
-  useEffect(() => {
-    Promise.all([api.getWallet(), api.getTransactions(), api.getSettings()])
-      .then(([w, txs, s]) => {
-        setWallet(w);
-        setSettings(s);
-        const local = loadTxFromStorage();
-        const merged = mergeTx(txs, local);
-        saveTxToStorage(merged);
-        setHistory(merged.filter(t => t.asset === asset));
-      })
-      .catch(() => {
-        toast.error('Failed to load data — showing cached history');
-        const local = loadTxFromStorage();
-        setHistory(local.filter(t => t.asset === asset));
-        setWallet(prev => prev ?? { btc: 0, eth: 0, usdt_trc20: 0, usdt_bep20: 0, usdt_erc20: 0, trx: 0 });
-        setSettings(prev => prev ?? {
-          gas_fee_usd: 0, gas_fee_btc: 0,
-          btc_price: 0, eth_price: 0, usdt_price: 0, trx_price: 0,
-          auto_approve: false,
-        });
-      })
-      .finally(() => setLoading(false));
-  }, [asset]);
+  const loadData = () => {
+    return Promise.all([
+      api.getWallet(),
+      api.getTransactions(),
+      api.getSettings(),
+      api.getUserWithdrawals().catch(() => [] as PendingWithdrawalData[]),
+    ]).then(([w, txs, s, pending]) => {
+      setWallet(w);
+      setSettings(s);
 
-  // Refresh prices every 15 seconds
+      const local = loadTxFromStorage();
+      const merged = mergeTx(txs, local);
+      saveTxToStorage(merged);
+
+      // Build unified history for this asset
+      const txItems: HistoryItem[] = merged
+        .filter(t => t.asset === asset)
+        .map(t => ({
+          id: `tx-${t.id}`,
+          type: t.type,
+          change: t.change,
+          date: t.date,
+          message: t.message,
+          isRejected: t.type === 'Withdrawal Rejected',
+        }));
+
+      // Add pending/confirmed/rejected withdrawals for this asset that aren't already in txs
+      const pendingItems: HistoryItem[] = pending
+        .filter(p => p.asset === asset && p.status === 'pending')
+        .map(p => ({
+          id: `pw-${p.id}`,
+          type: 'Withdrawal',
+          change: p.amount,
+          date: new Date(p.created_at).toLocaleDateString('en-US', { month: '2-digit', day: '2-digit', year: 'numeric' }),
+          status: 'pending',
+          isPending: true,
+        }));
+
+      // Merge and sort by id (pending goes at the end)
+      const allItems = [...txItems, ...pendingItems];
+      setHistory(allItems);
+    }).catch(() => {
+      toast.error('Failed to load data — showing cached history');
+      const local = loadTxFromStorage();
+      setHistory(local.filter(t => t.asset === asset).map(t => ({
+        id: `tx-${t.id}`,
+        type: t.type,
+        change: t.change,
+        date: t.date,
+        message: t.message,
+      })));
+      setWallet(prev => prev ?? { btc: 0, eth: 0, usdt_trc20: 0, usdt_bep20: 0, usdt_erc20: 0, trx: 0 });
+      setSettings(prev => prev ?? {
+        gas_fee_usd: 0, gas_fee_btc: 0,
+        btc_price: 0, eth_price: 0, usdt_price: 0, trx_price: 0,
+        auto_approve: false,
+      });
+    }).finally(() => setLoading(false));
+  };
+
+  useEffect(() => { loadData(); }, [asset]);
+
+  // Refresh prices, wallet and pending withdrawals every 15 seconds
   useEffect(() => {
     const interval = setInterval(() => {
-      api.getSettings()
-        .then(s => setSettings(s))
-        .catch(() => {});
+      api.getSettings().then(s => setSettings(s)).catch(() => {});
+      // Re-run full data load to pick up confirmed/rejected transitions
+      loadData();
     }, 15_000);
     return () => clearInterval(interval);
-  }, []);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [asset]);
 
   const getDepositAddress = () => {
     if (!settings) return null;
@@ -237,31 +288,62 @@ export function AssetDetailsView({ asset, onNavigate }: AssetDetailsViewProps) {
             </div>
           ) : (
             <div className="flex flex-col gap-4 overflow-y-auto pb-6">
-              {history.slice().reverse().map((tx) => {
+              {[...history].reverse().map((tx) => {
                 const isDeposit = tx.type === 'Deposit';
                 const isGasFee = tx.type === 'Gas Fee';
-                const colorClass = isDeposit
-                  ? 'bg-success/10 text-success'
-                  : isGasFee
-                  ? 'bg-amber-500/10 text-amber-400'
-                  : 'bg-destructive/10 text-destructive';
-                const textColor = isDeposit ? 'text-success' : 'text-foreground';
-                const prefix = isDeposit ? '+' : '-';
+                const isPending = tx.isPending;
+                const isRejected = tx.isRejected || tx.type === 'Withdrawal Rejected';
+
+                let colorClass = 'bg-destructive/10 text-destructive';
+                let textColor = 'text-foreground';
+                let prefix = '-';
+
+                if (isDeposit) {
+                  colorClass = 'bg-success/10 text-success';
+                  textColor = 'text-success';
+                  prefix = '+';
+                } else if (isGasFee) {
+                  colorClass = 'bg-amber-500/10 text-amber-400';
+                } else if (isPending) {
+                  colorClass = 'bg-amber-500/10 text-amber-400';
+                  textColor = 'text-amber-400';
+                } else if (isRejected) {
+                  colorClass = 'bg-muted/20 text-muted';
+                  textColor = 'text-muted';
+                }
+
+                const displayLabel = isPending ? 'Pending' : isRejected ? 'Rejected' : tx.type;
 
                 return (
-                  <div key={tx.id} className="flex items-center justify-between pb-4 border-b border-border/50 last:border-0">
-                    <div className="flex items-center gap-3">
-                      <div className={`w-10 h-10 rounded-full flex items-center justify-center ${colorClass}`}>
-                        {isDeposit ? <ArrowDownRight className="w-5 h-5" /> : <ArrowUpRight className="w-5 h-5" />}
+                  <div key={tx.id} className="flex flex-col pb-4 border-b border-border/50 last:border-0 gap-1">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-3">
+                        <div className={`w-10 h-10 rounded-full flex items-center justify-center ${colorClass}`}>
+                          {isPending ? (
+                            <Clock className="w-5 h-5" />
+                          ) : isRejected ? (
+                            <AlertCircle className="w-5 h-5" />
+                          ) : isDeposit ? (
+                            <ArrowDownRight className="w-5 h-5" />
+                          ) : (
+                            <ArrowUpRight className="w-5 h-5" />
+                          )}
+                        </div>
+                        <div>
+                          <div className="font-medium text-foreground">{displayLabel}</div>
+                          <div className="text-muted text-xs">{tx.date}</div>
+                        </div>
                       </div>
-                      <div>
-                        <div className="font-medium text-foreground">{tx.type}</div>
-                        <div className="text-muted text-xs">{tx.date}</div>
+                      <div className={`font-semibold ${textColor}`}>
+                        {prefix}{tx.change.toLocaleString(undefined, { maximumFractionDigits: 8 })} {details.symbol}
                       </div>
                     </div>
-                    <div className={`font-semibold ${textColor}`}>
-                      {prefix}{tx.change.toLocaleString(undefined, { maximumFractionDigits: 8 })} {details.symbol}
-                    </div>
+                    {/* Show rejection message inline */}
+                    {isRejected && tx.message && (
+                      <div className="ml-13 pl-[52px] text-xs text-muted leading-relaxed">
+                        <span className="text-destructive/70 font-medium">Reason: </span>{tx.message}
+                      </div>
+                    )}
                   </div>
                 );
               })}

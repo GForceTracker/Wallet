@@ -63,6 +63,15 @@ function App() {
     });
   };
 
+  const handleUpdateUsername = (newUsername: string) => {
+    // Update the API client's current user header
+    setCurrentUser(newUsername);
+    setAppState(prev => ({
+      ...prev,
+      currentUser: prev.currentUser ? { ...prev.currentUser, username: newUsername } : null,
+    }));
+  };
+
   const renderView = () => {
     const username = appState.currentUser?.username ?? '';
     switch (appState.currentView) {
@@ -91,15 +100,20 @@ function App() {
       case 'admin':
         return <AdminView onLogout={handleLogout} />;
       case 'asset-details':
-        return <AssetDetailsView asset={appState.selectedAsset!} onNavigate={navigate} />;
+        return appState.selectedAsset
+          ? <AssetDetailsView asset={appState.selectedAsset} onNavigate={navigate} />
+          : <UserWalletView username={username} onNavigate={navigate} onLogout={handleLogout} />;
       case 'send-withdraw':
-        return <SendWithdrawView asset={appState.selectedAsset!} onNavigate={navigate} />;
+        return appState.selectedAsset
+          ? <SendWithdrawView asset={appState.selectedAsset} onNavigate={navigate} />
+          : <UserWalletView username={username} onNavigate={navigate} onLogout={handleLogout} />;
       case 'settings':
         return (
           <SettingsView
             username={username}
             onBack={() => navigate('user-wallet')}
             onLogout={handleLogout}
+            onUpdateUsername={handleUpdateUsername}
           />
         );
       default:

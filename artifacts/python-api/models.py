@@ -35,6 +35,21 @@ class Transaction(Base):
     type = Column(String, nullable=False)
     change = Column(Float, nullable=False)
     date = Column(String, nullable=False)
+    message = Column(String, nullable=True)
+
+
+class PendingWithdrawal(Base):
+    __tablename__ = "pending_withdrawals"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    asset = Column(String, nullable=False)
+    amount = Column(Float, nullable=False)
+    address = Column(String, nullable=False)
+    # pending / confirmed / rejected
+    status = Column(String, default="pending", nullable=False)
+    admin_message = Column(String, nullable=True)
+    created_at = Column(String, nullable=False)
 
 
 class Notification(Base):
@@ -45,6 +60,8 @@ class Notification(Base):
     message = Column(String, nullable=False)
     is_read = Column(Boolean, default=False, nullable=False)
     created_at = Column(String, nullable=False)
+    # type: deposit / withdrawal_confirmed / withdrawal_rejected
+    notif_type = Column(String, nullable=True, default="deposit")
 
 
 class Settings(Base):

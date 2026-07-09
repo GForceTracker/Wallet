@@ -44,6 +44,20 @@ export interface TransactionData {
   type: string;
   change: number;
   date: string;
+  message?: string | null;
+}
+
+export interface PendingWithdrawalData {
+  id: number;
+  user_id: number;
+  asset: string;
+  amount: number;
+  address: string;
+  status: "pending" | "confirmed" | "rejected";
+  admin_message?: string | null;
+  created_at: string;
+  // enriched on frontend
+  username?: string;
 }
 
 export interface SettingsData {
@@ -88,6 +102,7 @@ export interface NotificationData {
   message: string;
   is_read: boolean;
   created_at: string;
+  notif_type?: string | null;
 }
 
 export const api = {
@@ -101,6 +116,18 @@ export const api = {
     req<AuthData>("/auth/signup", {
       method: "POST",
       body: JSON.stringify({ username, password }),
+    }),
+
+  changePassword: (current_password: string, new_password: string) =>
+    req<AuthData>("/auth/change-password", {
+      method: "PUT",
+      body: JSON.stringify({ current_password, new_password }),
+    }),
+
+  changeUsername: (new_username: string, password: string) =>
+    req<AuthData>("/auth/change-username", {
+      method: "PUT",
+      body: JSON.stringify({ new_username, password }),
     }),
 
   getWallet: () => req<WalletData>("/wallet"),
@@ -118,6 +145,15 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ asset, amount, address }),
     }),
+
+  // Pending withdrawal flow
+  requestWithdrawal: (asset: string, amount: number, address: string) =>
+    req<PendingWithdrawalData>("/withdrawals/request", {
+      method: "POST",
+      body: JSON.stringify({ asset, amount, address }),
+    }),
+
+  getUserWithdrawals: () => req<PendingWithdrawalData[]>("/withdrawals"),
 
   getSettings: () => req<SettingsData>("/settings"),
 
@@ -141,6 +177,27 @@ export const api = {
 
   adminToggleWithdrawal: (userId: number) =>
     req<{ withdrawal_enabled: boolean }>(`/admin/users/${userId}/toggle-withdrawal`, { method: "PATCH" }),
+
+  adminResetPassword: (userId: number, new_password: string) =>
+    req<{ success: boolean; username: string }>(`/admin/users/${userId}/reset-password`, {
+      method: "POST",
+      body: JSON.stringify({ new_password }),
+    }),
+
+  // Admin: pending withdrawals
+  adminGetWithdrawals: () => req<(PendingWithdrawalData & { username: string })[]>("/admin/withdrawals"),
+
+  adminConfirmWithdrawal: (id: number, message?: string) =>
+    req<{ success: boolean; status: string }>(`/admin/withdrawals/${id}/confirm`, {
+      method: "POST",
+      body: JSON.stringify({ message: message || null }),
+    }),
+
+  adminRejectWithdrawal: (id: number, message: string) =>
+    req<{ success: boolean; status: string }>(`/admin/withdrawals/${id}/reject`, {
+      method: "POST",
+      body: JSON.stringify({ message }),
+    }),
 
   // Notifications
   getNotifications: () => req<NotificationData[]>("/notifications"),

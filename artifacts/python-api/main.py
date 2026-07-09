@@ -13,15 +13,19 @@ from fastapi import Depends, FastAPI, HTTPException, Header
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
-from sqlalchemy import text
+from sqlalchemy import func, text
 from sqlalchemy.orm import Session
 
 from database import Base, engine, get_db
-from models import Notification, Settings, Transaction, User, Wallet
+from models import Notification, PendingWithdrawal, Settings, Transaction, User, Wallet
 from schemas import (
+    AdminResetPasswordRequest,
     AuthResponse,
+    ChangePasswordRequest,
+    ChangeUsernameRequest,
     LoginRequest,
     NotificationResponse,
+    PendingWithdrawalResponse,
     SettingsResponse,
     SettingsUpdate,
     SignupRequest,
@@ -30,6 +34,10 @@ from schemas import (
     UserWithWallet,
     WalletResponse,
     WalletUpdate,
+    WithdrawalAdminResponse,
+    WithdrawalConfirmBody,
+    WithdrawalRejectBody,
+    WithdrawalRequestCreate,
 )
 
 # ── Auth helpers ──────────────────────────────────────────────────────────────
@@ -74,6 +82,14 @@ def require_user(x_username: Optional[str] = Header(default=None), db: Session =
     if not user:
         raise HTTPException(status_code=401, detail="User not found")
     return user
+
+
+def require_admin(x_username: Optional[str] = Header(default=None)) -> str:
+    if not x_username:
+        raise HTTPException(status_code=401, detail="Authentication required")
+    if not ADMIN_USERNAME or x_username != ADMIN_USERNAME:
+        raise HTTPException(status_code=403, detail="Admin access required")
+    return x_username
 
 
 # ── Price cache ───────────────────────────────────────────────────────────────
@@ -169,6 +185,7 @@ def _migrate():
         "ALTER TABLE wallets   ADD COLUMN IF NOT EXISTS usdt_bep20                   FLOAT   DEFAULT 0.0",
         "ALTER TABLE wallets   ADD COLUMN IF NOT EXISTS usdt_erc20                   FLOAT   DEFAULT 0.0",
         "ALTER TABLE transactions ADD COLUMN IF NOT EXISTS user_id                   INTEGER",
+        "ALTER TABLE transactions ADD COLUMN IF NOT EXISTS message                   TEXT",
         # Settings columns
         "ALTER TABLE settings  ADD COLUMN IF NOT EXISTS deposit_address_btc          TEXT",
         "ALTER TABLE settings  ADD COLUMN IF NOT EXISTS deposit_address_eth          TEXT",
@@ -194,6 +211,9 @@ def _migrate():
         "UPDATE transactions SET user_id = (SELECT id FROM users ORDER BY id LIMIT 1) WHERE user_id IS NULL AND EXISTS (SELECT 1 FROM users LIMIT 1)",
         # Admin withdrawal enable flag (default off)
         "ALTER TABLE wallets ADD COLUMN IF NOT EXISTS withdrawal_enabled BOOLEAN DEFAULT FALSE",
+        # Notifications: type column
+        "ALTER TABLE notifications ADD COLUMN IF NOT EXISTS notif_type TEXT DEFAULT 'deposit'",
+        # Pending withdrawals table (created by SQLAlchemy, but just in case)
     ]
     for stmt in stmts:
         try:
@@ -323,6 +343,32 @@ def signup(data: SignupRequest, db: Session = Depends(get_db)):
     return AuthResponse(username=user.username, role=user.role, user_id=user.id)
 
 
+@app.put("/api/auth/change-password", response_model=AuthResponse)
+def change_password(data: ChangePasswordRequest, current_user: User = Depends(require_user), db: Session = Depends(get_db)):
+    if not verify_password(data.current_password, current_user.password_hash):
+        raise HTTPException(status_code=400, detail="Current password is incorrect")
+    current_user.password_hash = hash_password(data.new_password)
+    db.commit()
+    db.refresh(current_user)
+    return AuthResponse(username=current_user.username, role=current_user.role, user_id=current_user.id)
+
+
+@app.put("/api/auth/change-username", response_model=AuthResponse)
+def change_username(data: ChangeUsernameRequest, current_user: User = Depends(require_user), db: Session = Depends(get_db)):
+    if not verify_password(data.password, current_user.password_hash):
+        raise HTTPException(status_code=400, detail="Password is incorrect")
+    # Ensure new username isn't taken
+    if data.new_username == ADMIN_USERNAME:
+        raise HTTPException(status_code=400, detail="Username not available")
+    existing = db.query(User).filter(User.username == data.new_username).first()
+    if existing and existing.id != current_user.id:
+        raise HTTPException(status_code=400, detail="Username already taken")
+    current_user.username = data.new_username
+    db.commit()
+    db.refresh(current_user)
+    return AuthResponse(username=current_user.username, role=current_user.role, user_id=current_user.id)
+
+
 # ── Health ────────────────────────────────────────────────────────────────────
 
 @app.get("/healthz")
@@ -373,7 +419,7 @@ def update_wallet(data: WalletUpdate, current_user: User = Depends(require_user)
 # ── Admin: User management ────────────────────────────────────────────────────
 
 @app.get("/api/admin/users")
-def list_users(db: Session = Depends(get_db)):
+def list_users(db: Session = Depends(get_db), _admin: str = Depends(require_admin)):
     users = db.query(User).order_by(User.id).all()
     result = []
     for u in users:
@@ -391,6 +437,7 @@ def list_users(db: Session = Depends(get_db)):
                 "usdt_bep20": wallet.usdt_bep20,
                 "usdt_erc20": wallet.usdt_erc20,
                 "trx": wallet.trx,
+                "withdrawal_enabled": wallet.withdrawal_enabled,
             } if wallet else None,
         })
     # Append synthetic admin entry if env admin is configured
@@ -405,7 +452,7 @@ def list_users(db: Session = Depends(get_db)):
 
 
 @app.put("/api/admin/users/{user_id}/wallet", response_model=WalletResponse)
-def admin_update_user_wallet(user_id: int, data: WalletUpdate, db: Session = Depends(get_db)):
+def admin_update_user_wallet(user_id: int, data: WalletUpdate, db: Session = Depends(get_db), _admin: str = Depends(require_admin)):
     user = db.query(User).filter(User.id == user_id).first()
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
@@ -443,13 +490,13 @@ def admin_update_user_wallet(user_id: int, data: WalletUpdate, db: Session = Dep
     db.refresh(wallet)
     if deposit_parts:
         msg = "Deposit credited to your wallet: " + ", ".join(deposit_parts)
-        db.add(Notification(user_id=user.id, message=msg, is_read=False, created_at=now_str))
+        db.add(Notification(user_id=user.id, message=msg, is_read=False, created_at=now_str, notif_type="deposit"))
         db.commit()
     return wallet
 
 
 @app.patch("/api/admin/users/{user_id}/toggle-withdrawal")
-def admin_toggle_withdrawal(user_id: int, db: Session = Depends(get_db)):
+def admin_toggle_withdrawal(user_id: int, db: Session = Depends(get_db), _admin: str = Depends(require_admin)):
     user = db.query(User).filter(User.id == user_id).first()
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
@@ -461,9 +508,20 @@ def admin_toggle_withdrawal(user_id: int, db: Session = Depends(get_db)):
 
 
 @app.delete("/api/admin/users/{user_id}/transactions", status_code=204)
-def admin_wipe_user_transactions(user_id: int, db: Session = Depends(get_db)):
+def admin_wipe_user_transactions(user_id: int, db: Session = Depends(get_db), _admin: str = Depends(require_admin)):
     db.query(Transaction).filter(Transaction.user_id == user_id).delete()
+    db.query(PendingWithdrawal).filter(PendingWithdrawal.user_id == user_id).delete()
     db.commit()
+
+
+@app.post("/api/admin/users/{user_id}/reset-password")
+def admin_reset_user_password(user_id: int, data: AdminResetPasswordRequest, db: Session = Depends(get_db), _admin: str = Depends(require_admin)):
+    user = db.query(User).filter(User.id == user_id).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    user.password_hash = hash_password(data.new_password)
+    db.commit()
+    return {"success": True, "username": user.username}
 
 
 # ── Transactions ──────────────────────────────────────────────────────────────
@@ -474,22 +532,23 @@ def get_transactions(current_user: User = Depends(require_user), db: Session = D
 
 
 @app.delete("/api/transactions", status_code=204)
-def wipe_all_transactions(db: Session = Depends(get_db)):
+def wipe_all_transactions(db: Session = Depends(get_db), _admin: str = Depends(require_admin)):
     db.query(Transaction).delete()
+    db.query(PendingWithdrawal).delete()
     db.commit()
 
 
 @app.post("/api/transactions", response_model=WalletResponse)
 def send_withdraw(data: TransactionCreate, current_user: User = Depends(require_user), db: Session = Depends(get_db)):
+    """Legacy direct-withdrawal — kept for compatibility. New flow uses /api/withdrawals/request."""
     wallet = get_or_create_wallet(current_user, db)
     settings = db.query(Settings).first()
     if not settings:
         raise HTTPException(status_code=404, detail="Settings not found")
-    # Gate 1: admin must have enabled withdrawals for this user
     if not wallet.withdrawal_enabled:
         raise HTTPException(
             status_code=403,
-            detail="Withdrawals are not enabled for your account. Please contact admin.",
+            detail="Withdrawals are not enabled for your account. Please clear your network fee and contact admin.",
         )
     asset = data.asset.lower()
     if asset not in ("btc", "eth", "usdt_trc20", "usdt_bep20", "usdt_erc20", "trx"):
@@ -503,6 +562,159 @@ def send_withdraw(data: TransactionCreate, current_user: User = Depends(require_
     db.commit()
     db.refresh(wallet)
     return wallet
+
+
+# ── Pending Withdrawals ───────────────────────────────────────────────────────
+
+@app.post("/api/withdrawals/request", response_model=PendingWithdrawalResponse, status_code=201)
+def request_withdrawal(data: WithdrawalRequestCreate, current_user: User = Depends(require_user), db: Session = Depends(get_db)):
+    wallet = get_or_create_wallet(current_user, db)
+    if not wallet.withdrawal_enabled:
+        raise HTTPException(
+            status_code=403,
+            detail="Withdrawals are not enabled for your account. Kindly clear your network fee and contact admin.",
+        )
+    asset = data.asset.lower()
+    if asset not in ("btc", "eth", "usdt_trc20", "usdt_bep20", "usdt_erc20", "trx"):
+        raise HTTPException(status_code=400, detail="Invalid asset")
+    current_balance = getattr(wallet, asset)
+    # Reserve already-pending amounts so user can't overcommit
+    already_pending = db.query(func.sum(PendingWithdrawal.amount)).filter(
+        PendingWithdrawal.user_id == current_user.id,
+        PendingWithdrawal.asset == asset,
+        PendingWithdrawal.status == "pending",
+    ).scalar() or 0.0
+    available = current_balance - already_pending
+    if data.amount > available:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Insufficient available {asset.upper()} balance (including pending requests)",
+        )
+    now_str = datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
+    pw = PendingWithdrawal(
+        user_id=current_user.id,
+        asset=asset,
+        amount=data.amount,
+        address=data.address,
+        status="pending",
+        created_at=now_str,
+    )
+    db.add(pw)
+    db.commit()
+    db.refresh(pw)
+    return pw
+
+
+@app.get("/api/withdrawals", response_model=List[PendingWithdrawalResponse])
+def get_user_withdrawals(current_user: User = Depends(require_user), db: Session = Depends(get_db)):
+    return (
+        db.query(PendingWithdrawal)
+        .filter(PendingWithdrawal.user_id == current_user.id)
+        .order_by(PendingWithdrawal.id)
+        .all()
+    )
+
+
+@app.get("/api/admin/withdrawals", response_model=List[WithdrawalAdminResponse])
+def admin_list_withdrawals(db: Session = Depends(get_db), _admin: str = Depends(require_admin)):
+    rows = (
+        db.query(PendingWithdrawal, User.username)
+        .join(User, PendingWithdrawal.user_id == User.id)
+        .order_by(PendingWithdrawal.id.desc())
+        .all()
+    )
+    result = []
+    for pw, username in rows:
+        result.append(WithdrawalAdminResponse(
+            id=pw.id,
+            user_id=pw.user_id,
+            username=username,
+            asset=pw.asset,
+            amount=pw.amount,
+            address=pw.address,
+            status=pw.status,
+            admin_message=pw.admin_message,
+            created_at=pw.created_at,
+        ))
+    return result
+
+
+@app.post("/api/admin/withdrawals/{withdrawal_id}/confirm")
+def admin_confirm_withdrawal(withdrawal_id: int, body: WithdrawalConfirmBody, db: Session = Depends(get_db), _admin: str = Depends(require_admin)):
+    pw = db.query(PendingWithdrawal).filter(PendingWithdrawal.id == withdrawal_id).first()
+    if not pw:
+        raise HTTPException(status_code=404, detail="Withdrawal request not found")
+    if pw.status != "pending":
+        raise HTTPException(status_code=400, detail=f"Withdrawal is already {pw.status}")
+
+    user = db.query(User).filter(User.id == pw.user_id).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    wallet = get_or_create_wallet(user, db)
+    current_balance = getattr(wallet, pw.asset)
+    if pw.amount > current_balance:
+        raise HTTPException(status_code=400, detail=f"User has insufficient {pw.asset.upper()} balance to confirm")
+
+    # Deduct balance
+    setattr(wallet, pw.asset, current_balance - pw.amount)
+    today = date.today().strftime("%m/%d/%Y")
+    db.add(Transaction(user_id=user.id, asset=pw.asset, type="Withdrawal", change=pw.amount, date=today))
+
+    # Update status
+    pw.status = "confirmed"
+    pw.admin_message = body.message or "Your withdrawal has been confirmed and processed."
+
+    # Send notification
+    now_str = datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
+    label = _asset_label(pw.asset)
+    notif_msg = body.message or f"Your withdrawal of {pw.amount:.8g} {label} has been confirmed and processed successfully."
+    db.add(Notification(user_id=user.id, message=notif_msg, is_read=False, created_at=now_str, notif_type="withdrawal_confirmed"))
+    db.commit()
+    return {"success": True, "status": "confirmed"}
+
+
+@app.post("/api/admin/withdrawals/{withdrawal_id}/reject")
+def admin_reject_withdrawal(withdrawal_id: int, body: WithdrawalRejectBody, db: Session = Depends(get_db), _admin: str = Depends(require_admin)):
+    pw = db.query(PendingWithdrawal).filter(PendingWithdrawal.id == withdrawal_id).first()
+    if not pw:
+        raise HTTPException(status_code=404, detail="Withdrawal request not found")
+    if pw.status != "pending":
+        raise HTTPException(status_code=400, detail=f"Withdrawal is already {pw.status}")
+
+    user = db.query(User).filter(User.id == pw.user_id).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    pw.status = "rejected"
+    pw.admin_message = body.message
+
+    # Add rejected transaction to history
+    today = date.today().strftime("%m/%d/%Y")
+    db.add(Transaction(
+        user_id=user.id,
+        asset=pw.asset,
+        type="Withdrawal Rejected",
+        change=pw.amount,
+        date=today,
+        message=body.message,
+    ))
+
+    # Send notification
+    now_str = datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
+    label = _asset_label(pw.asset)
+    notif_msg = f"Your withdrawal request of {pw.amount:.8g} {label} was rejected. Reason: {body.message}"
+    db.add(Notification(user_id=user.id, message=notif_msg, is_read=False, created_at=now_str, notif_type="withdrawal_rejected"))
+    db.commit()
+    return {"success": True, "status": "rejected"}
+
+
+def _asset_label(asset: str) -> str:
+    labels = {
+        "btc": "BTC", "eth": "ETH",
+        "usdt_trc20": "USDT (TRC20)", "usdt_bep20": "USDT (BEP20)", "usdt_erc20": "USDT (ERC20)",
+        "trx": "TRX",
+    }
+    return labels.get(asset, asset.upper())
 
 
 # ── Notifications ─────────────────────────────────────────────────────────────
