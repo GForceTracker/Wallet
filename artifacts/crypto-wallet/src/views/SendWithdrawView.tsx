@@ -1,5 +1,5 @@
-import React, { useEffect, useId, useState, useRef } from 'react';
-import { ArrowLeft, AlertCircle, Copy, X, Clock, CheckCircle, ShieldX } from 'lucide-react';
+import React, { useEffect, useId, useState, useRef, useCallback } from 'react';
+import { ArrowLeft, AlertCircle, Copy, X, Clock, CheckCircle } from 'lucide-react';
 import { ViewState } from '../App';
 import { AssetType } from '../store';
 import { api, ApiError, WalletData, SettingsData } from '../api';
@@ -9,21 +9,20 @@ import { toast } from 'sonner';
 
 const LOCKOUT_KEY = 'trant_withdraw_lockout';
 const MAX_ATTEMPTS = 5;
+const LOCKOUT_SECONDS = 5 * 60; // 5 minutes
 
 interface LockoutState {
   attempts: number;
-  permanent: boolean; // true = permanently restricted until admin re-enables
+  lockedUntil: number | null; // epoch ms — null means not locked
 }
 
 function getLockout(username: string): LockoutState {
   try {
     const raw = localStorage.getItem(`${LOCKOUT_KEY}_${username}`);
-    if (!raw) return { attempts: 0, permanent: false };
-    const parsed = JSON.parse(raw);
-    // Migrate old format (lockedUntil field) to new format
-    return { attempts: parsed.attempts ?? 0, permanent: parsed.permanent ?? false };
+    if (!raw) return { attempts: 0, lockedUntil: null };
+    return JSON.parse(raw) as LockoutState;
   } catch {
-    return { attempts: 0, permanent: false };
+    return { attempts: 0, lockedUntil: null };
   }
 }
 
@@ -149,6 +148,28 @@ function FeePopup({ feeInAsset, assetLabel, feeAddress, feeUsd, onClose }: FeePo
   );
 }
 
+// ── Countdown display ─────────────────────────────────────────────────────────
+
+function useCountdown(lockedUntil: number | null, onExpire: () => void) {
+  const [remaining, setRemaining] = useState(0);
+  const cbRef = useRef(onExpire);
+  cbRef.current = onExpire;
+
+  useEffect(() => {
+    if (!lockedUntil) { setRemaining(0); return; }
+    const tick = () => {
+      const secs = Math.max(0, Math.ceil((lockedUntil - Date.now()) / 1000));
+      setRemaining(secs);
+      if (secs === 0) cbRef.current();
+    };
+    tick();
+    const id = setInterval(tick, 1000);
+    return () => clearInterval(id);
+  }, [lockedUntil]);
+
+  return remaining;
+}
+
 // ── Main component ────────────────────────────────────────────────────────────
 
 interface SendWithdrawViewProps {
@@ -171,7 +192,7 @@ export function SendWithdrawView({ asset, onNavigate }: SendWithdrawViewProps) {
   const [submitted, setSubmitted] = useState(false);
 
   // Lockout state
-  const [lockout, setLockout] = useState<LockoutState>({ attempts: 0, permanent: false });
+  const [lockout, setLockout] = useState<LockoutState>({ attempts: 0, lockedUntil: null });
 
   // Stable per-user key derived from wallet user_id
   const userKey = useRef<string>('anonymous');
@@ -183,13 +204,7 @@ export function SendWithdrawView({ asset, onNavigate }: SendWithdrawViewProps) {
         setSettings(s);
         const key = w.user_id != null ? `uid_${w.user_id}` : 'anonymous';
         userKey.current = key;
-        // If admin has (re-)enabled withdrawals, clear any existing lockout so the user can proceed
-        if (w.withdrawal_enabled) {
-          clearLockout(key);
-          setLockout({ attempts: 0, permanent: false });
-        } else {
-          setLockout(getLockout(key));
-        }
+        setLockout(getLockout(key));
       })
       .catch(() => toast.error('Failed to load wallet data'))
       .finally(() => setLoading(false));
@@ -198,19 +213,20 @@ export function SendWithdrawView({ asset, onNavigate }: SendWithdrawViewProps) {
   useEffect(() => {
     const interval = setInterval(() => {
       api.getSettings().then(s => setSettings(s)).catch(() => {});
-      api.getWallet().then(w => {
-        setWallet(w);
-        // If the user becomes enabled while the screen is open, clear lockout
-        if (w.withdrawal_enabled) {
-          clearLockout(userKey.current);
-          setLockout({ attempts: 0, permanent: false });
-        }
-      }).catch(() => {});
+      api.getWallet().then(w => setWallet(w)).catch(() => {});
     }, 15_000);
     return () => clearInterval(interval);
   }, []);
 
-  const isPermanentlyLocked = lockout.permanent;
+  // Reset lockout when the 5-minute window expires
+  const handleLockoutExpired = useCallback(() => {
+    const fresh: LockoutState = { attempts: 0, lockedUntil: null };
+    setLockout(fresh);
+    saveLockout(userKey.current, fresh);
+  }, []);
+
+  const remainingSecs = useCountdown(lockout.lockedUntil, handleLockoutExpired);
+  const isLocked = lockout.lockedUntil !== null && remainingSecs > 0;
 
   if (loading || !wallet || !settings) {
     return (
@@ -275,7 +291,7 @@ export function SendWithdrawView({ asset, onNavigate }: SendWithdrawViewProps) {
   };
 
   const handleSend = async () => {
-    if (isPermanentlyLocked) return;
+    if (isLocked) return;
 
     if (!address.trim()) {
       toast.error('Please enter a recipient address');
@@ -302,12 +318,12 @@ export function SendWithdrawView({ asset, onNavigate }: SendWithdrawViewProps) {
       await api.requestWithdrawal(asset, withdrawAmount, address.trim());
       // Success — clear any lockout
       clearLockout(userKey.current);
-      setLockout({ attempts: 0, permanent: false });
+      setLockout({ attempts: 0, lockedUntil: null });
       setSubmitted(true);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'Transaction failed';
 
-      // Use HTTP 403 status as the authoritative signal (not message text)
+      // Use HTTP 403 status as the authoritative signal
       const is403 = err instanceof ApiError && err.status === 403;
 
       if (is403) {
@@ -315,18 +331,18 @@ export function SendWithdrawView({ asset, onNavigate }: SendWithdrawViewProps) {
         const newAttempts = current.attempts + 1;
 
         if (newAttempts >= MAX_ATTEMPTS) {
-          // Permanently restrict — only admin re-enabling clears this
-          const next: LockoutState = { attempts: newAttempts, permanent: true };
+          // 5-minute lockout
+          const lockedUntil = Date.now() + LOCKOUT_SECONDS * 1000;
+          const next: LockoutState = { attempts: newAttempts, lockedUntil };
           saveLockout(userKey.current, next);
           setLockout(next);
-          // Show popup with 0 remaining before the screen transitions
+          // Still show popup (0 attempts left) before screen transitions
           setInsufficientAttemptsLeft(0);
           setShowInsufficientPopup(true);
         } else {
-          const next: LockoutState = { attempts: newAttempts, permanent: false };
+          const next: LockoutState = { attempts: newAttempts, lockedUntil: null };
           saveLockout(userKey.current, next);
           setLockout(next);
-          // Show insufficient funds popup with remaining attempts
           setInsufficientAttemptsLeft(MAX_ATTEMPTS - newAttempts);
           setShowInsufficientPopup(true);
         }
@@ -373,9 +389,15 @@ export function SendWithdrawView({ asset, onNavigate }: SendWithdrawViewProps) {
     );
   }
 
-  // ── Permanently restricted screen ────────────────────────────────────────
+  // ── Lockout screen (5-minute cooldown) ───────────────────────────────────
 
-  if (isPermanentlyLocked) {
+  if (isLocked) {
+    const formatCountdown = (secs: number) => {
+      const m = Math.floor(secs / 60).toString().padStart(2, '0');
+      const s = (secs % 60).toString().padStart(2, '0');
+      return `${m}:${s}`;
+    };
+
     return (
       <div className="flex flex-col h-full bg-background">
         <div className="flex items-center p-6 pt-8 relative">
@@ -389,18 +411,22 @@ export function SendWithdrawView({ asset, onNavigate }: SendWithdrawViewProps) {
         </div>
         <div className="flex-1 flex flex-col items-center justify-center px-8 gap-6 text-center">
           <div className="w-20 h-20 rounded-full bg-destructive/15 flex items-center justify-center">
-            <ShieldX className="w-10 h-10 text-destructive" />
+            <Clock className="w-10 h-10 text-destructive" />
           </div>
           <div className="flex flex-col gap-3">
-            <h2 className="text-xl font-bold text-foreground">Account Restricted</h2>
+            <h2 className="text-xl font-bold text-foreground">Temporarily Restricted</h2>
             <p className="text-muted text-sm leading-relaxed">
-              Your account has been restricted from making withdrawals due to multiple failed attempts.
+              Multiple failed attempts detected. Please clear your network fee and try again in:
             </p>
+            <div className="text-5xl font-bold text-destructive tabular-nums">
+              {formatCountdown(remainingSecs)}
+            </div>
+            <p className="text-xs text-muted">minutes : seconds</p>
           </div>
           <div className="w-full bg-destructive/10 border border-destructive/20 rounded-2xl p-4 flex flex-col gap-3 text-left">
-            <div className="text-sm font-semibold text-foreground">What happened?</div>
+            <div className="text-sm font-semibold text-foreground">Why am I seeing this?</div>
             <p className="text-xs text-muted leading-relaxed">
-              You attempted to withdraw {MAX_ATTEMPTS} times without the required network fee being cleared. Your account is now permanently restricted. Please contact support or your account manager to regain access.
+              You attempted to withdraw {MAX_ATTEMPTS} times without clearing the required network fee. Please clear the fee, then return once the timer expires.
             </p>
           </div>
         </div>
