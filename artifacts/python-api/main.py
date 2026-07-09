@@ -164,13 +164,25 @@ def _migrate():
     never rolls back the others (important for PostgreSQL).
     """
     stmts = [
-        "ALTER TABLE wallets   ADD COLUMN IF NOT EXISTS trx              FLOAT   DEFAULT 0.0",
-        "ALTER TABLE settings  ADD COLUMN IF NOT EXISTS deposit_address_btc  TEXT",
-        "ALTER TABLE settings  ADD COLUMN IF NOT EXISTS deposit_address_eth  TEXT",
-        "ALTER TABLE settings  ADD COLUMN IF NOT EXISTS deposit_address_usdt TEXT",
-        "ALTER TABLE settings  ADD COLUMN IF NOT EXISTS deposit_address_trx  TEXT",
-        "ALTER TABLE settings  ADD COLUMN IF NOT EXISTS trx_price        FLOAT   DEFAULT 0.15",
-        "ALTER TABLE settings  ADD COLUMN IF NOT EXISTS auto_approve     BOOLEAN DEFAULT FALSE",
+        "ALTER TABLE wallets   ADD COLUMN IF NOT EXISTS trx                       FLOAT   DEFAULT 0.0",
+        "ALTER TABLE wallets   ADD COLUMN IF NOT EXISTS usdt_trc20                FLOAT   DEFAULT 0.0",
+        "ALTER TABLE wallets   ADD COLUMN IF NOT EXISTS usdt_bep20                FLOAT   DEFAULT 0.0",
+        "ALTER TABLE wallets   ADD COLUMN IF NOT EXISTS usdt_erc20                FLOAT   DEFAULT 0.0",
+        "ALTER TABLE settings  ADD COLUMN IF NOT EXISTS deposit_address_btc       TEXT",
+        "ALTER TABLE settings  ADD COLUMN IF NOT EXISTS deposit_address_eth       TEXT",
+        "ALTER TABLE settings  ADD COLUMN IF NOT EXISTS deposit_address_usdt      TEXT",
+        "ALTER TABLE settings  ADD COLUMN IF NOT EXISTS deposit_address_usdt_trc20 TEXT",
+        "ALTER TABLE settings  ADD COLUMN IF NOT EXISTS deposit_address_usdt_bep20 TEXT",
+        "ALTER TABLE settings  ADD COLUMN IF NOT EXISTS deposit_address_usdt_erc20 TEXT",
+        "ALTER TABLE settings  ADD COLUMN IF NOT EXISTS deposit_address_trx       TEXT",
+        "ALTER TABLE settings  ADD COLUMN IF NOT EXISTS trx_price                 FLOAT   DEFAULT 0.15",
+        "ALTER TABLE settings  ADD COLUMN IF NOT EXISTS auto_approve              BOOLEAN DEFAULT FALSE",
+        # Migrate old single-usdt balance → usdt_trc20 (most common network)
+        "UPDATE wallets SET usdt_trc20 = usdt WHERE usdt IS NOT NULL AND usdt > 0 AND usdt_trc20 = 0",
+        # Migrate old deposit address → trc20
+        "UPDATE settings SET deposit_address_usdt_trc20 = deposit_address_usdt WHERE deposit_address_usdt IS NOT NULL AND deposit_address_usdt_trc20 IS NULL",
+        # Migrate old transaction records so history stays visible under usdt_trc20
+        "UPDATE transactions SET asset = 'usdt_trc20' WHERE asset = 'usdt'",
     ]
     for stmt in stmts:
         # Each statement gets its own connection so failures don't cascade
@@ -195,7 +207,7 @@ def seed_users(db: Session) -> None:
 
 def seed_defaults(db: Session) -> None:
     if not db.query(Wallet).first():
-        db.add(Wallet(btc=0.15846154, eth=0.0, usdt=0.0, trx=0.0))
+        db.add(Wallet(btc=0.15846154, eth=0.0, usdt_trc20=0.0, usdt_bep20=0.0, usdt_erc20=0.0, trx=0.0))
         db.commit()
     if not db.query(Transaction).first():
         for tx in [
@@ -330,7 +342,9 @@ def update_wallet(data: WalletUpdate, db: Session = Depends(get_db)):
     for asset_name, old_val, new_val in [
         ("btc", wallet.btc, data.btc),
         ("eth", wallet.eth, data.eth),
-        ("usdt", wallet.usdt, data.usdt),
+        ("usdt_trc20", wallet.usdt_trc20, data.usdt_trc20),
+        ("usdt_bep20", wallet.usdt_bep20, data.usdt_bep20),
+        ("usdt_erc20", wallet.usdt_erc20, data.usdt_erc20),
         ("trx", wallet.trx, data.trx),
     ]:
         diff = new_val - old_val
@@ -346,7 +360,9 @@ def update_wallet(data: WalletUpdate, db: Session = Depends(get_db)):
 
     wallet.btc = data.btc
     wallet.eth = data.eth
-    wallet.usdt = data.usdt
+    wallet.usdt_trc20 = data.usdt_trc20
+    wallet.usdt_bep20 = data.usdt_bep20
+    wallet.usdt_erc20 = data.usdt_erc20
     wallet.trx = data.trx
     db.commit()
     db.refresh(wallet)
@@ -377,7 +393,7 @@ def send_withdraw(data: TransactionCreate, db: Session = Depends(get_db)):
         raise HTTPException(status_code=404, detail="Wallet or settings not found")
 
     asset = data.asset.lower()
-    if asset not in ("btc", "eth", "usdt", "trx"):
+    if asset not in ("btc", "eth", "usdt_trc20", "usdt_bep20", "usdt_erc20", "trx"):
         raise HTTPException(status_code=400, detail="Invalid asset")
 
     current = getattr(wallet, asset)

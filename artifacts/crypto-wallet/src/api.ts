@@ -20,7 +20,9 @@ async function req<T>(path: string, options?: RequestInit): Promise<T> {
 export interface WalletData {
   btc: number;
   eth: number;
-  usdt: number;
+  usdt_trc20: number;
+  usdt_bep20: number;
+  usdt_erc20: number;
   trx: number;
 }
 
@@ -42,7 +44,9 @@ export interface SettingsData {
   trx_price: number;
   deposit_address_btc?: string | null;
   deposit_address_eth?: string | null;
-  deposit_address_usdt?: string | null;
+  deposit_address_usdt_trc20?: string | null;
+  deposit_address_usdt_bep20?: string | null;
+  deposit_address_usdt_erc20?: string | null;
   deposit_address_trx?: string | null;
   auto_approve: boolean;
 }

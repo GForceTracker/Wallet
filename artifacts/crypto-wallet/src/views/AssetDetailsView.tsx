@@ -10,6 +10,7 @@ const TrxIcon = ({ size = 24 }: { size?: number }) => (
     alt="TRX"
   />
 );
+
 import { ViewState } from '../App';
 import { AssetType } from '../store';
 import { api, WalletData, TransactionData, SettingsData } from '../api';
@@ -95,7 +96,7 @@ export function AssetDetailsView({ asset, onNavigate }: AssetDetailsViewProps) {
         toast.error('Failed to load data — showing cached history');
         const local = loadTxFromStorage();
         setHistory(local.filter(t => t.asset === asset));
-        setWallet(prev => prev ?? { btc: 0, eth: 0, usdt: 0, trx: 0 });
+        setWallet(prev => prev ?? { btc: 0, eth: 0, usdt_trc20: 0, usdt_bep20: 0, usdt_erc20: 0, trx: 0 });
         setSettings(prev => prev ?? {
           gas_fee_usd: 0, gas_fee_btc: 0,
           btc_price: 0, eth_price: 0, usdt_price: 0, trx_price: 0,
@@ -120,7 +121,9 @@ export function AssetDetailsView({ asset, onNavigate }: AssetDetailsViewProps) {
     switch (asset) {
       case 'btc': return settings.deposit_address_btc;
       case 'eth': return settings.deposit_address_eth;
-      case 'usdt': return settings.deposit_address_usdt;
+      case 'usdt_trc20': return settings.deposit_address_usdt_trc20;
+      case 'usdt_bep20': return settings.deposit_address_usdt_bep20;
+      case 'usdt_erc20': return settings.deposit_address_usdt_erc20;
       case 'trx': return settings.deposit_address_trx;
     }
   };
@@ -133,12 +136,16 @@ export function AssetDetailsView({ asset, onNavigate }: AssetDetailsViewProps) {
     );
   }
 
-  const prices = {
+  const prices: Record<AssetType, number> = {
     btc: settings.btc_price,
     eth: settings.eth_price,
-    usdt: settings.usdt_price,
+    usdt_trc20: settings.usdt_price,
+    usdt_bep20: settings.usdt_price,
+    usdt_erc20: settings.usdt_price,
     trx: settings.trx_price,
   };
+
+  const isUsdt = asset === 'usdt_trc20' || asset === 'usdt_bep20' || asset === 'usdt_erc20';
   const balance = wallet[asset];
   const price = prices[asset];
   const fiatVal = balance * price;
@@ -153,8 +160,16 @@ export function AssetDetailsView({ asset, onNavigate }: AssetDetailsViewProps) {
         name: 'Ethereum', symbol: 'ETH',
         icon: <div className="bg-[#627eea]/20 p-4 rounded-full"><SiEthereum className="text-[#627eea] w-10 h-10" /></div>,
       };
-      case 'usdt': return {
-        name: 'Tether', symbol: 'USDT',
+      case 'usdt_trc20': return {
+        name: 'Tether', symbol: 'USDT TRC20',
+        icon: <div className="bg-[#26a17b]/20 p-4 rounded-full"><SiTether className="text-[#26a17b] w-10 h-10" /></div>,
+      };
+      case 'usdt_bep20': return {
+        name: 'Tether', symbol: 'USDT BEP20',
+        icon: <div className="bg-[#26a17b]/20 p-4 rounded-full"><SiTether className="text-[#26a17b] w-10 h-10" /></div>,
+      };
+      case 'usdt_erc20': return {
+        name: 'Tether', symbol: 'USDT ERC20',
         icon: <div className="bg-[#26a17b]/20 p-4 rounded-full"><SiTether className="text-[#26a17b] w-10 h-10" /></div>,
       };
       case 'trx': return {
@@ -190,7 +205,7 @@ export function AssetDetailsView({ asset, onNavigate }: AssetDetailsViewProps) {
             ${fiatVal.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
           </div>
           <div className="text-muted/60 text-xs mt-1">
-            1 {details.symbol} = ${price.toLocaleString(undefined, { maximumFractionDigits: 4 })} · live price
+            1 {isUsdt ? 'USDT' : details.symbol} = ${price.toLocaleString(undefined, { maximumFractionDigits: 4 })} · live price
           </div>
         </div>
 

@@ -17,7 +17,9 @@ class Wallet(Base):
     id = Column(Integer, primary_key=True, index=True)
     btc = Column(Float, default=0.0, nullable=False)
     eth = Column(Float, default=0.0, nullable=False)
-    usdt = Column(Float, default=0.0, nullable=False)
+    usdt_trc20 = Column(Float, default=0.0, nullable=False)
+    usdt_bep20 = Column(Float, default=0.0, nullable=False)
+    usdt_erc20 = Column(Float, default=0.0, nullable=False)
     trx = Column(Float, default=0.0, nullable=False)
 
 
@@ -44,7 +46,9 @@ class Settings(Base):
     # Deposit addresses — set by admin
     deposit_address_btc = Column(String, nullable=True, default=None)
     deposit_address_eth = Column(String, nullable=True, default=None)
-    deposit_address_usdt = Column(String, nullable=True, default=None)
+    deposit_address_usdt_trc20 = Column(String, nullable=True, default=None)
+    deposit_address_usdt_bep20 = Column(String, nullable=True, default=None)
+    deposit_address_usdt_erc20 = Column(String, nullable=True, default=None)
     deposit_address_trx = Column(String, nullable=True, default=None)
     # Auto-approve: skip gas fee requirement for withdrawals
     auto_approve = Column(Boolean, default=False, nullable=False)

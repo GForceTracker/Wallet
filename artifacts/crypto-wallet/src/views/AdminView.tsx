@@ -16,12 +16,14 @@ export function AdminView({ onLogout }: AdminViewProps) {
   const [wiping, setWiping] = useState(false);
   const [confirmWipe, setConfirmWipe] = useState(false);
 
-  const [bal, setBal] = useState({ btc: '', eth: '', usdt: '', trx: '' });
+  const [bal, setBal] = useState({ btc: '', eth: '', usdt_trc20: '', usdt_bep20: '', usdt_erc20: '', trx: '' });
   const [fees, setFees] = useState({ gas_fee_usd: '', gas_fee_btc: '' });
   const [addresses, setAddresses] = useState({
     deposit_address_btc: '',
     deposit_address_eth: '',
-    deposit_address_usdt: '',
+    deposit_address_usdt_trc20: '',
+    deposit_address_usdt_bep20: '',
+    deposit_address_usdt_erc20: '',
     deposit_address_trx: '',
   });
   const [autoApprove, setAutoApprove] = useState(false);
@@ -31,12 +33,21 @@ export function AdminView({ onLogout }: AdminViewProps) {
       .then(([w, s]) => {
         setWallet(w);
         setSettings(s);
-        setBal({ btc: w.btc.toString(), eth: w.eth.toString(), usdt: w.usdt.toString(), trx: w.trx.toString() });
+        setBal({
+          btc: w.btc.toString(),
+          eth: w.eth.toString(),
+          usdt_trc20: w.usdt_trc20.toString(),
+          usdt_bep20: w.usdt_bep20.toString(),
+          usdt_erc20: w.usdt_erc20.toString(),
+          trx: w.trx.toString(),
+        });
         setFees({ gas_fee_usd: s.gas_fee_usd.toString(), gas_fee_btc: s.gas_fee_btc.toString() });
         setAddresses({
           deposit_address_btc: s.deposit_address_btc ?? '',
           deposit_address_eth: s.deposit_address_eth ?? '',
-          deposit_address_usdt: s.deposit_address_usdt ?? '',
+          deposit_address_usdt_trc20: s.deposit_address_usdt_trc20 ?? '',
+          deposit_address_usdt_bep20: s.deposit_address_usdt_bep20 ?? '',
+          deposit_address_usdt_erc20: s.deposit_address_usdt_erc20 ?? '',
           deposit_address_trx: s.deposit_address_trx ?? '',
         });
         setAutoApprove(s.auto_approve ?? false);
@@ -52,7 +63,9 @@ export function AdminView({ onLogout }: AdminViewProps) {
         api.updateWallet({
           btc: parseFloat(bal.btc) || 0,
           eth: parseFloat(bal.eth) || 0,
-          usdt: parseFloat(bal.usdt) || 0,
+          usdt_trc20: parseFloat(bal.usdt_trc20) || 0,
+          usdt_bep20: parseFloat(bal.usdt_bep20) || 0,
+          usdt_erc20: parseFloat(bal.usdt_erc20) || 0,
           trx: parseFloat(bal.trx) || 0,
         }),
         api.updateSettings({
@@ -60,7 +73,9 @@ export function AdminView({ onLogout }: AdminViewProps) {
           gas_fee_btc: parseFloat(fees.gas_fee_btc) || 0,
           deposit_address_btc: addresses.deposit_address_btc.trim() || null,
           deposit_address_eth: addresses.deposit_address_eth.trim() || null,
-          deposit_address_usdt: addresses.deposit_address_usdt.trim() || null,
+          deposit_address_usdt_trc20: addresses.deposit_address_usdt_trc20.trim() || null,
+          deposit_address_usdt_bep20: addresses.deposit_address_usdt_bep20.trim() || null,
+          deposit_address_usdt_erc20: addresses.deposit_address_usdt_erc20.trim() || null,
           deposit_address_trx: addresses.deposit_address_trx.trim() || null,
           auto_approve: autoApprove,
         }),
@@ -112,7 +127,9 @@ export function AdminView({ onLogout }: AdminViewProps) {
         {([
           { label: 'Bitcoin (BTC)', key: 'btc', current: wallet.btc },
           { label: 'Ethereum (ETH)', key: 'eth', current: wallet.eth },
-          { label: 'Tether (USDT)', key: 'usdt', current: wallet.usdt },
+          { label: 'USDT TRC20', key: 'usdt_trc20', current: wallet.usdt_trc20 },
+          { label: 'USDT BEP20', key: 'usdt_bep20', current: wallet.usdt_bep20 },
+          { label: 'USDT ERC20', key: 'usdt_erc20', current: wallet.usdt_erc20 },
           { label: 'Tron (TRX)', key: 'trx', current: wallet.trx },
         ] as const).map(({ label, key, current }) => (
           <div key={key} className="flex flex-col gap-2">
@@ -137,7 +154,9 @@ export function AdminView({ onLogout }: AdminViewProps) {
         {([
           { label: 'BTC Deposit Address', key: 'deposit_address_btc', placeholder: 'bc1q…' },
           { label: 'ETH Deposit Address', key: 'deposit_address_eth', placeholder: '0x…' },
-          { label: 'USDT Deposit Address', key: 'deposit_address_usdt', placeholder: '0x… or T…' },
+          { label: 'USDT TRC20 Deposit Address', key: 'deposit_address_usdt_trc20', placeholder: 'T…' },
+          { label: 'USDT BEP20 Deposit Address', key: 'deposit_address_usdt_bep20', placeholder: '0x…' },
+          { label: 'USDT ERC20 Deposit Address', key: 'deposit_address_usdt_erc20', placeholder: '0x…' },
           { label: 'TRX Deposit Address', key: 'deposit_address_trx', placeholder: 'T…' },
         ] as const).map(({ label, key, placeholder }) => (
           <div key={key} className="flex flex-col gap-2">
@@ -210,7 +229,6 @@ export function AdminView({ onLogout }: AdminViewProps) {
               </div>
             </div>
           </div>
-          {/* Toggle switch */}
           <div className={`w-11 h-6 rounded-full transition-colors relative shrink-0 ${autoApprove ? 'bg-primary' : 'bg-border'}`}>
             <div className={`absolute top-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform ${autoApprove ? 'translate-x-5' : 'translate-x-0.5'}`} />
           </div>

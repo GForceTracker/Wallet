@@ -10,6 +10,14 @@ const TrxIcon = ({ size = 24 }: { size?: number }) => (
     alt="TRX"
   />
 );
+
+type UsdtNetwork = 'TRC20' | 'BEP20' | 'ERC20';
+const USDT_NETWORK_COLOR: Record<UsdtNetwork, string> = {
+  TRC20: '#ef0027',
+  BEP20: '#F0B90B',
+  ERC20: '#627eea',
+};
+
 import { ViewState } from '../App';
 import { AssetType } from '../store';
 import { api, WalletData, SettingsData } from '../api';
@@ -31,8 +39,19 @@ function ReceiveModal({ settings, onClose }: ReceiveModalProps) {
   const addressMap: Record<AssetType, string | null | undefined> = {
     btc: settings.deposit_address_btc,
     eth: settings.deposit_address_eth,
-    usdt: settings.deposit_address_usdt,
+    usdt_trc20: settings.deposit_address_usdt_trc20,
+    usdt_bep20: settings.deposit_address_usdt_bep20,
+    usdt_erc20: settings.deposit_address_usdt_erc20,
     trx: settings.deposit_address_trx,
+  };
+
+  const tabLabels: Record<AssetType, string> = {
+    btc: 'BTC',
+    eth: 'ETH',
+    usdt_trc20: 'TRC20',
+    usdt_bep20: 'BEP20',
+    usdt_erc20: 'ERC20',
+    trx: 'TRX',
   };
 
   const address = addressMap[tab];
@@ -54,9 +73,9 @@ function ReceiveModal({ settings, onClose }: ReceiveModalProps) {
           </button>
         </div>
 
-        {/* Asset tabs */}
-        <div className="grid grid-cols-4 gap-2">
-          {(['btc', 'eth', 'usdt', 'trx'] as AssetType[]).map((a) => (
+        {/* Asset tabs — 3 columns, 2 rows */}
+        <div className="grid grid-cols-3 gap-2">
+          {(['btc', 'eth', 'trx', 'usdt_trc20', 'usdt_bep20', 'usdt_erc20'] as AssetType[]).map((a) => (
             <button
               key={a}
               onClick={() => setTab(a)}
@@ -66,7 +85,7 @@ function ReceiveModal({ settings, onClose }: ReceiveModalProps) {
                   : 'bg-background border border-border text-muted hover:text-foreground'
               }`}
             >
-              {a.toUpperCase()}
+              {tabLabels[a]}
             </button>
           ))}
         </div>
@@ -74,7 +93,7 @@ function ReceiveModal({ settings, onClose }: ReceiveModalProps) {
         {address ? (
           <>
             <p className="text-sm text-muted">
-              Send only {tab.toUpperCase()} to this address. Sending any other asset may result in permanent loss.
+              Send only {tabLabels[tab]} to this address. Sending any other asset may result in permanent loss.
             </p>
             <div className="bg-background border border-border rounded-xl p-4 flex flex-col gap-3">
               <span className="text-xs text-muted uppercase tracking-widest font-medium">Deposit Address</span>
@@ -91,7 +110,7 @@ function ReceiveModal({ settings, onClose }: ReceiveModalProps) {
         ) : (
           <div className="flex flex-col items-center gap-3 py-4 text-center">
             <p className="text-muted text-sm">
-              No {tab.toUpperCase()} deposit address has been configured yet. Please contact support.
+              No {tabLabels[tab]} deposit address has been configured yet. Please contact support.
             </p>
           </div>
         )}
@@ -118,7 +137,7 @@ export function UserWalletView({ onNavigate, onLogout }: UserWalletViewProps) {
     const interval = setInterval(() => {
       api.getSettings()
         .then(s => setSettings(s))
-        .catch(() => {}); // silent — don't toast on background refresh
+        .catch(() => {});
     }, 15_000);
     return () => clearInterval(interval);
   }, []);
@@ -131,17 +150,14 @@ export function UserWalletView({ onNavigate, onLogout }: UserWalletViewProps) {
     );
   }
 
-  const prices = {
-    btc: settings.btc_price,
-    eth: settings.eth_price,
-    usdt: settings.usdt_price,
-    trx: settings.trx_price,
-  };
+  const usdtPrice = settings.usdt_price;
   const totalBalance =
-    wallet.btc * prices.btc +
-    wallet.eth * prices.eth +
-    wallet.usdt * prices.usdt +
-    wallet.trx * prices.trx;
+    wallet.btc * settings.btc_price +
+    wallet.eth * settings.eth_price +
+    wallet.usdt_trc20 * usdtPrice +
+    wallet.usdt_bep20 * usdtPrice +
+    wallet.usdt_erc20 * usdtPrice +
+    wallet.trx * settings.trx_price;
 
   const formatFiat = (val: number) =>
     new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(val);
@@ -172,7 +188,7 @@ export function UserWalletView({ onNavigate, onLogout }: UserWalletViewProps) {
         <div className="flex items-start justify-center gap-8 py-6 mb-4">
           <div className="flex flex-col items-center gap-2">
             <button
-              onClick={() => onNavigate('send-withdraw', 'usdt')}
+              onClick={() => onNavigate('send-withdraw', 'usdt_trc20')}
               className="w-14 h-14 bg-primary text-background rounded-full flex items-center justify-center hover:bg-primary/90 transition-colors shadow-[0_0_20px_rgba(88,166,255,0.3)] active:scale-95"
             >
               <ArrowUpRight className="w-6 h-6" strokeWidth={2.5} />
@@ -204,22 +220,35 @@ export function UserWalletView({ onNavigate, onLogout }: UserWalletViewProps) {
         {/* Assets List */}
         <div className="flex-1 px-4 flex flex-col gap-3 overflow-y-auto">
           <AssetRow
-            name="Bitcoin" symbol="BTC" balance={wallet.btc} price={prices.btc}
+            name="Bitcoin" symbol="BTC" balance={wallet.btc} price={settings.btc_price}
             icon={<div className="bg-[#f7931a]/10 p-2.5 rounded-full"><SiBitcoin className="text-[#f7931a] w-6 h-6" /></div>}
             onClick={() => onNavigate('asset-details', 'btc')}
           />
           <AssetRow
-            name="Ethereum" symbol="ETH" balance={wallet.eth} price={prices.eth}
+            name="Ethereum" symbol="ETH" balance={wallet.eth} price={settings.eth_price}
             icon={<div className="bg-[#627eea]/10 p-2.5 rounded-full"><SiEthereum className="text-[#627eea] w-6 h-6" /></div>}
             onClick={() => onNavigate('asset-details', 'eth')}
           />
           <AssetRow
-            name="Tether" symbol="USDT" balance={wallet.usdt} price={prices.usdt}
+            name="Tether" symbol="USDT" network="TRC20" balance={wallet.usdt_trc20} price={usdtPrice}
             icon={<div className="bg-[#26a17b]/10 p-2.5 rounded-full"><SiTether className="text-[#26a17b] w-6 h-6" /></div>}
-            onClick={() => onNavigate('asset-details', 'usdt')}
+            networkColor={USDT_NETWORK_COLOR.TRC20}
+            onClick={() => onNavigate('asset-details', 'usdt_trc20')}
           />
           <AssetRow
-            name="Tron" symbol="TRX" balance={wallet.trx} price={prices.trx}
+            name="Tether" symbol="USDT" network="BEP20" balance={wallet.usdt_bep20} price={usdtPrice}
+            icon={<div className="bg-[#26a17b]/10 p-2.5 rounded-full"><SiTether className="text-[#26a17b] w-6 h-6" /></div>}
+            networkColor={USDT_NETWORK_COLOR.BEP20}
+            onClick={() => onNavigate('asset-details', 'usdt_bep20')}
+          />
+          <AssetRow
+            name="Tether" symbol="USDT" network="ERC20" balance={wallet.usdt_erc20} price={usdtPrice}
+            icon={<div className="bg-[#26a17b]/10 p-2.5 rounded-full"><SiTether className="text-[#26a17b] w-6 h-6" /></div>}
+            networkColor={USDT_NETWORK_COLOR.ERC20}
+            onClick={() => onNavigate('asset-details', 'usdt_erc20')}
+          />
+          <AssetRow
+            name="Tron" symbol="TRX" balance={wallet.trx} price={settings.trx_price}
             icon={<div className="bg-[#ef0027]/10 p-2.5 rounded-full"><TrxIcon size={24} /></div>}
             onClick={() => onNavigate('asset-details', 'trx')}
           />
@@ -243,9 +272,9 @@ export function UserWalletView({ onNavigate, onLogout }: UserWalletViewProps) {
   );
 }
 
-function AssetRow({ name, symbol, balance, price, icon, onClick }: {
-  name: string; symbol: string; balance: number; price: number;
-  icon: React.ReactNode; onClick: () => void;
+function AssetRow({ name, symbol, network, networkColor, balance, price, icon, onClick }: {
+  name: string; symbol: string; network?: string; networkColor?: string;
+  balance: number; price: number; icon: React.ReactNode; onClick: () => void;
 }) {
   const fiatVal = balance * price;
   return (
@@ -256,7 +285,17 @@ function AssetRow({ name, symbol, balance, price, icon, onClick }: {
       <div className="flex items-center gap-4">
         {icon}
         <div>
-          <div className="font-semibold text-foreground text-base">{name}</div>
+          <div className="font-semibold text-foreground text-base flex items-center gap-2">
+            {name}
+            {network && (
+              <span
+                className="text-[10px] font-bold px-1.5 py-0.5 rounded-md text-white leading-tight"
+                style={{ backgroundColor: networkColor }}
+              >
+                {network}
+              </span>
+            )}
+          </div>
           <div className="text-muted text-sm">${price.toLocaleString(undefined, { maximumFractionDigits: 4 })}</div>
         </div>
       </div>
