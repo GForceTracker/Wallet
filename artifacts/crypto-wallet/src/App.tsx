@@ -7,6 +7,8 @@ import { UserWalletView } from './views/UserWalletView';
 import { AdminView } from './views/AdminView';
 import { AssetDetailsView } from './views/AssetDetailsView';
 import { SendWithdrawView } from './views/SendWithdrawView';
+import { SplashScreen } from './components/SplashScreen';
+import { useColorScheme } from './hooks/useColorScheme';
 import { AssetType } from './store';
 
 export type ViewState = 'login' | 'signup' | 'user-wallet' | 'admin' | 'asset-details' | 'send-withdraw';
@@ -17,6 +19,9 @@ export interface AppState {
 }
 
 function App() {
+  const [showSplash, setShowSplash] = useState(true);
+  const colorScheme = useColorScheme();
+
   const [appState, setAppState] = useState<AppState>({
     currentView: 'login',
     selectedAsset: null,
@@ -64,9 +69,18 @@ function App() {
   };
 
   return (
-    // Full-screen on all devices; on wider screens, show as a centered phone card
-    <div className="min-h-[100svh] w-full bg-black sm:flex sm:items-center sm:justify-center">
+    // Outer shell: bg-scheme adapts to light/dark; phone card centred on wide screens
+    <div className="min-h-[100svh] w-full bg-scheme sm:flex sm:items-center sm:justify-center">
       <div className="w-full sm:max-w-[430px] min-h-[100svh] sm:min-h-0 sm:h-[100svh] bg-background sm:rounded-3xl sm:border border-border overflow-hidden relative shadow-2xl flex flex-col">
+
+        {/* ── Splash overlay ────────────────────────────────────────────── */}
+        <AnimatePresence>
+          {showSplash && (
+            <SplashScreen onComplete={() => setShowSplash(false)} />
+          )}
+        </AnimatePresence>
+
+        {/* ── App views ─────────────────────────────────────────────────── */}
         <AnimatePresence mode="wait" initial={false}>
           <motion.div
             key={appState.currentView}
@@ -80,7 +94,9 @@ function App() {
           </motion.div>
         </AnimatePresence>
       </div>
-      <Toaster theme="dark" position="top-center" />
+
+      {/* Toast notifications – follows system colour scheme */}
+      <Toaster theme={colorScheme} position="top-center" />
     </div>
   );
 }

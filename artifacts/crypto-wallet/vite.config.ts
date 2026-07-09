@@ -25,9 +25,9 @@ export default defineConfig({
       registerType: 'autoUpdate',
       includeAssets: ['favicon.svg', 'apple-touch-icon.png'],
       manifest: {
-        name: 'Crypto Wallet',
-        short_name: 'Wallet',
-        description: 'Secure crypto wallet — BTC, ETH, USDT, TRX',
+        name: 'TRANT WALLET',
+        short_name: 'TRANT',
+        description: 'TRANT WALLET — secure crypto wallet for BTC, ETH, USDT & TRX',
         theme_color: '#0d1117',
         background_color: '#0d1117',
         display: 'standalone',

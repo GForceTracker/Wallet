@@ -1,59 +1,84 @@
 @import "tailwindcss";
 @import "tw-animate-css";
 
-@custom-variant dark (&:is(.dark *));
-
+/* ── Design tokens – DARK (default) ────────────────────────────────────── */
 @theme {
   --color-background: #0d1117;
-  --color-foreground: #ffffff;
-  --color-card: #161b22;
-  --color-border: #30363d;
-  --color-muted: #8b949e;
-  --color-primary: #58a6ff;
-  --color-success: #238636;
-  --color-destructive: #da3637;
-  --color-btc: #f7931a;
-  --color-eth: #627eea;
+  --color-foreground: #e6edf3;
+  --color-card:       #161b22;
+  --color-border:     #30363d;
+  --color-muted:      #8b949e;
+  --color-primary:    #58a6ff;
+  --color-success:    #238636;
+  --color-destructive:#da3637;
+  --color-scheme:     #000000;   /* desktop surround colour */
+
+  --color-btc:  #f7931a;
+  --color-eth:  #627eea;
   --color-usdt: #26a17b;
 }
 
+/* ── Design tokens – LIGHT (overrides when OS is in light mode) ─────────── */
+@media (prefers-color-scheme: light) {
+  :root {
+    --color-background: #f6f8fa;
+    --color-foreground: #0d1117;
+    --color-card:       #ffffff;
+    --color-border:     #d0d7de;
+    --color-muted:      #57606a;
+    --color-primary:    #0969da;
+    --color-success:    #1a7f37;
+    --color-destructive:#cf222e;
+    --color-scheme:     #e6edf3;  /* desktop surround in light mode */
+
+    color-scheme: light;
+  }
+}
+
+/* ── Base ────────────────────────────────────────────────────────────────── */
 :root {
-  background-color: #0d1117;
-  color: #ffffff;
+  background-color: var(--color-background);
+  color: var(--color-foreground);
   color-scheme: dark;
 }
 
 body {
   margin: 0;
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+               Helvetica, Arial, sans-serif;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   overscroll-behavior: none;
+  background-color: var(--color-background);
+  color: var(--color-foreground);
 }
 
-/* ── Smooth momentum scrolling everywhere ───────────────────────────── */
+/* ── Smooth momentum scrolling everywhere ───────────────────────────────── */
 * {
   -webkit-overflow-scrolling: touch;
   scroll-behavior: smooth;
 }
 
-/* ── Hide all scrollbars (visible content still scrolls) ────────────── */
+/* ── Hide all scrollbars (content still scrolls) ───────────────────────── */
 * {
-  scrollbar-width: none;        /* Firefox */
-  -ms-overflow-style: none;     /* IE / Edge */
+  scrollbar-width: none;
+  -ms-overflow-style: none;
 }
 *::-webkit-scrollbar {
-  display: none;                /* Chrome / Safari / Opera */
+  display: none;
 }
 
-/* Chrome, Safari, Edge, Opera */
+/* ── Spin-button suppression on number inputs ───────────────────────────── */
 input::-webkit-outer-spin-button,
 input::-webkit-inner-spin-button {
   -webkit-appearance: none;
   margin: 0;
 }
-
-/* Firefox */
 input[type=number] {
   -moz-appearance: textfield;
+}
+
+/* ── bg-scheme utility (used by App outer shell) ────────────────────────── */
+.bg-scheme {
+  background-color: var(--color-scheme);
 }

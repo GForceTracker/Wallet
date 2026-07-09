@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { Settings, Search, ArrowUpRight, ArrowDownRight, LogOut, Copy, X } from 'lucide-react';
 import { SiBitcoin, SiEthereum, SiTether } from 'react-icons/si';
+import { TrantLogo } from '../components/TrantLogo';
 
 const TrxIcon = ({ size = 24 }: { size?: number }) => (
   <img
@@ -170,7 +171,10 @@ export function UserWalletView({ onNavigate, onLogout }: UserWalletViewProps) {
           <button className="p-2 -ml-2 text-muted hover:text-foreground transition-colors">
             <Settings className="w-6 h-6" />
           </button>
-          <div className="font-medium text-foreground">Mia Chen Wallet</div>
+          <div className="flex items-center gap-1.5">
+            <TrantLogo size={22} />
+            <span className="font-bold tracking-[0.12em] text-foreground text-sm">TRANT</span>
+          </div>
           <button className="p-2 -mr-2 text-muted hover:text-foreground transition-colors">
             <Search className="w-6 h-6" />
           </button>

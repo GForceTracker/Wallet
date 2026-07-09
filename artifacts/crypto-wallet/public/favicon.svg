@@ -1,3 +1,49 @@
-<svg width="180" height="180" viewBox="0 0 180 180" fill="none" xmlns="http://www.w3.org/2000/svg">
-<rect width="180" height="180" rx="36" fill="#FF3C00"/>
+<svg width="32" height="32" viewBox="0 0 120 120" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <radialGradient id="bg" cx="38%" cy="30%" r="70%" gradientUnits="userSpaceOnUse">
+      <stop offset="0%"   stop-color="#1c2e58"/>
+      <stop offset="100%" stop-color="#04081a"/>
+    </radialGradient>
+    <linearGradient id="main" x1="0" y1="0" x2="120" y2="120" gradientUnits="userSpaceOnUse">
+      <stop offset="0%"   stop-color="#00e5ff"/>
+      <stop offset="45%"  stop-color="#0ea5e9"/>
+      <stop offset="100%" stop-color="#7c3aed"/>
+    </linearGradient>
+    <linearGradient id="ring" x1="0" y1="0" x2="120" y2="120" gradientUnits="userSpaceOnUse">
+      <stop offset="0%"   stop-color="#00e5ff" stop-opacity="0.9"/>
+      <stop offset="100%" stop-color="#7c3aed" stop-opacity="0.9"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Hexagon background -->
+  <polygon points="60,4 112,32 112,88 60,116 8,88 8,32" fill="url(#bg)"/>
+
+  <!-- Facet lines -->
+  <line x1="60" y1="60" x2="60"  y2="4"   stroke="url(#main)" stroke-width="0.6" opacity="0.18"/>
+  <line x1="60" y1="60" x2="112" y2="32"  stroke="url(#main)" stroke-width="0.6" opacity="0.18"/>
+  <line x1="60" y1="60" x2="112" y2="88"  stroke="url(#main)" stroke-width="0.6" opacity="0.18"/>
+  <line x1="60" y1="60" x2="60"  y2="116" stroke="url(#main)" stroke-width="0.6" opacity="0.18"/>
+  <line x1="60" y1="60" x2="8"   y2="88"  stroke="url(#main)" stroke-width="0.6" opacity="0.18"/>
+  <line x1="60" y1="60" x2="8"   y2="32"  stroke="url(#main)" stroke-width="0.6" opacity="0.18"/>
+
+  <!-- T glyph (crossbar + hex-bottomed stem as single polygon) -->
+  <polygon points="26,36 94,36 97,39 97,51 94,54 74,54 74,82 66,89 54,89 46,82 46,54 26,54 23,51 23,39" fill="url(#main)"/>
+
+  <!-- Bar-tip accents -->
+  <polygon points="23,39 19,45 23,51" fill="#00e5ff" opacity="0.85"/>
+  <polygon points="97,39 101,45 97,51" fill="#7c3aed" opacity="0.85"/>
+
+  <!-- Apex sparkle -->
+  <polygon points="60,28 63,36 60,34 57,36" fill="#00e5ff" opacity="0.9"/>
+
+  <!-- Three node dots -->
+  <circle cx="42" cy="97" r="2.4" fill="url(#main)" opacity="0.75"/>
+  <circle cx="60" cy="100" r="2.4" fill="url(#main)" opacity="0.9"/>
+  <circle cx="78" cy="97"  r="2.4" fill="url(#main)" opacity="0.75"/>
+  <line x1="44" y1="97" x2="58" y2="100" stroke="url(#main)" stroke-width="0.7" opacity="0.4"/>
+  <line x1="62" y1="100" x2="76" y2="97"  stroke="url(#main)" stroke-width="0.7" opacity="0.4"/>
+
+  <!-- Hex border -->
+  <polygon points="60,4 112,32 112,88 60,116 8,88 8,32" fill="none" stroke="url(#ring)" stroke-width="2.2"/>
+  <polygon points="60,7 109,33.5 109,86.5 60,113 11,86.5 11,33.5" fill="none" stroke="url(#ring)" stroke-width="0.5" opacity="0.3"/>
 </svg>
