@@ -12,6 +12,7 @@ class LoginRequest(BaseModel):
 class SignupRequest(BaseModel):
     username: str = Field(min_length=2, max_length=30)
     password: str = Field(min_length=6)
+    wallet_name: Optional[str] = Field(default=None, max_length=40)
 
 
 class AuthResponse(BaseModel):
@@ -46,6 +47,7 @@ class WalletResponse(BaseModel):
     usdt_erc20: float
     trx: float
     withdrawal_enabled: bool = False
+    wallet_name: Optional[str] = None
 
     model_config = {"from_attributes": True}
 

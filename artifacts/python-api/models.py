@@ -24,6 +24,7 @@ class Wallet(Base):
     trx = Column(Float, default=0.0, nullable=False)
     # Admin must enable withdrawals for this user before they can send
     withdrawal_enabled = Column(Boolean, default=False, nullable=False)
+    wallet_name = Column(String, nullable=True, default=None)
 
 
 class Transaction(Base):

@@ -26,6 +26,7 @@ async function req<T>(path: string, options?: RequestInit): Promise<T> {
 }
 
 export interface WalletData {
+  wallet_name?: string | null;
   id?: number;
   user_id?: number | null;
   btc: number;
@@ -112,10 +113,10 @@ export const api = {
       body: JSON.stringify({ username, password }),
     }),
 
-  signup: (username: string, password: string) =>
+  signup: (username: string, password: string, walletName?: string) =>
     req<AuthData>("/auth/signup", {
       method: "POST",
-      body: JSON.stringify({ username, password }),
+      body: JSON.stringify({ username, password, wallet_name: walletName }),
     }),
 
   changePassword: (current_password: string, new_password: string) =>

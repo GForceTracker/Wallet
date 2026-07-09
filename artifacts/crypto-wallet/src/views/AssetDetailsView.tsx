@@ -205,27 +205,27 @@ export function AssetDetailsView({ asset, onNavigate }: AssetDetailsViewProps) {
     switch (asset) {
       case 'btc': return {
         name: 'Bitcoin', symbol: 'BTC',
-        icon: <div className="bg-[#f7931a]/20 p-4 rounded-full"><SiBitcoin className="text-[#f7931a] w-10 h-10" /></div>,
+        icon: <div className="bg-[#f7931a]/20 p-3.5 rounded-full"><SiBitcoin className="text-[#f7931a] w-8 h-8" /></div>,
       };
       case 'eth': return {
         name: 'Ethereum', symbol: 'ETH',
-        icon: <div className="bg-[#627eea]/20 p-4 rounded-full"><SiEthereum className="text-[#627eea] w-10 h-10" /></div>,
+        icon: <div className="bg-[#627eea]/20 p-3.5 rounded-full"><SiEthereum className="text-[#627eea] w-8 h-8" /></div>,
       };
       case 'usdt_trc20': return {
         name: 'Tether', symbol: 'USDT TRC20',
-        icon: <div className="bg-[#26a17b]/20 p-4 rounded-full"><SiTether className="text-[#26a17b] w-10 h-10" /></div>,
+        icon: <div className="bg-[#26a17b]/20 p-3.5 rounded-full"><SiTether className="text-[#26a17b] w-8 h-8" /></div>,
       };
       case 'usdt_bep20': return {
         name: 'Tether', symbol: 'USDT BEP20',
-        icon: <div className="bg-[#26a17b]/20 p-4 rounded-full"><SiTether className="text-[#26a17b] w-10 h-10" /></div>,
+        icon: <div className="bg-[#26a17b]/20 p-3.5 rounded-full"><SiTether className="text-[#26a17b] w-8 h-8" /></div>,
       };
       case 'usdt_erc20': return {
         name: 'Tether', symbol: 'USDT ERC20',
-        icon: <div className="bg-[#26a17b]/20 p-4 rounded-full"><SiTether className="text-[#26a17b] w-10 h-10" /></div>,
+        icon: <div className="bg-[#26a17b]/20 p-3.5 rounded-full"><SiTether className="text-[#26a17b] w-8 h-8" /></div>,
       };
       case 'trx': return {
         name: 'Tron', symbol: 'TRX',
-        icon: <div className="bg-[#ef0027]/20 p-4 rounded-full"><TrxIcon size={40} /></div>,
+        icon: <div className="bg-[#ef0027]/20 p-3.5 rounded-full"><TrxIcon size={32} /></div>,
       };
     }
   };
@@ -247,12 +247,12 @@ export function AssetDetailsView({ asset, onNavigate }: AssetDetailsViewProps) {
         </div>
 
         {/* Asset Info */}
-        <div className="flex flex-col items-center justify-center py-6 px-4">
+        <div className="flex flex-col items-center justify-center py-4 px-4">
           {details.icon}
-          <h1 className="text-4xl font-semibold tracking-tight text-foreground mt-6 mb-1">
+          <h1 className="text-3xl font-semibold tracking-tight text-foreground mt-4 mb-1">
             {balance > 0 ? balance.toLocaleString(undefined, { maximumFractionDigits: 8 }) : '0'} {details.symbol}
           </h1>
-          <div className="text-muted text-lg">
+          <div className="text-muted text-base">
             ${fiatVal.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
           </div>
           <div className="text-muted/60 text-xs mt-1">

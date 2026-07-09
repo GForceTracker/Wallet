@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
-import { Eye, EyeOff, Lock } from 'lucide-react';
+import { Eye, EyeOff } from 'lucide-react';
+import { TrantLogo } from '../components/TrantLogo';
 import { api } from '../api';
 
 interface LoginViewProps {
@@ -29,13 +30,15 @@ export function LoginView({ onLogin, onSignup }: LoginViewProps) {
   };
 
   return (
-    <div className="flex flex-col h-full p-6 bg-background items-center justify-center">
-      <div className="w-16 h-16 bg-card rounded-full flex items-center justify-center mb-5 border border-border shadow-lg">
-        <Lock className="w-8 h-8 text-primary" />
+    <div className="flex flex-col h-full bg-background px-6 pt-20 pb-10">
+      {/* Brand mark */}
+      <div className="flex flex-col items-center mb-10">
+        <div className="flex items-center gap-2 mb-2">
+          <TrantLogo size={32} />
+          <span className="font-bold tracking-[0.14em] text-foreground text-2xl">TRANT</span>
+        </div>
+        <p className="text-muted text-sm">Enter credentials to access your wallet</p>
       </div>
-
-      <h1 className="text-2xl font-semibold text-foreground mb-1.5">Secured Access</h1>
-      <p className="text-muted text-sm mb-8 text-center">Enter credentials to access your wallet</p>
 
       <form onSubmit={handleLogin} className="w-full flex flex-col gap-4">
         <div className="flex flex-col gap-1.5">
@@ -47,6 +50,7 @@ export function LoginView({ onLogin, onSignup }: LoginViewProps) {
             className="w-full bg-card border border-border rounded-xl px-4 py-3.5 text-foreground focus:outline-none focus:border-primary transition-colors"
             placeholder="Username"
             autoComplete="username"
+            autoFocus
           />
         </div>
 
@@ -67,19 +71,19 @@ export function LoginView({ onLogin, onSignup }: LoginViewProps) {
               className="absolute right-3.5 top-1/2 -translate-y-1/2 text-muted hover:text-foreground transition-colors p-1"
               tabIndex={-1}
             >
-              {showPassword ? <EyeOff className="w-4.5 h-4.5" /> : <Eye className="w-4.5 h-4.5" />}
+              {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
             </button>
           </div>
         </div>
 
         {error && (
-          <div className="text-destructive text-sm px-1 mt-1 font-medium">{error}</div>
+          <div className="text-destructive text-sm px-1 font-medium">{error}</div>
         )}
 
         <button
           type="submit"
           disabled={loading}
-          className="w-full bg-success hover:bg-success/90 disabled:opacity-50 disabled:cursor-not-allowed text-white font-medium rounded-xl px-4 py-4 mt-3 transition-colors shadow-lg active:scale-[0.98]"
+          className="w-full bg-success hover:bg-success/90 disabled:opacity-50 disabled:cursor-not-allowed text-white font-semibold rounded-xl px-4 py-4 mt-2 transition-colors shadow-lg active:scale-[0.98]"
         >
           {loading ? 'Connecting…' : 'Login'}
         </button>

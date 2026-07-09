@@ -160,7 +160,7 @@ export function UserWalletView({ username, onNavigate, onLogout }: UserWalletVie
   const [pendingNotif, setPendingNotif] = useState<NotificationData | null>(null);
   const seenIdsRef = useRef<Set<number>>(new Set());
 
-  const walletName = username ? `${username} Wallet 1` : 'My Wallet';
+  const walletName = wallet?.wallet_name || (username ? `${username}'s Wallet` : 'My Wallet');
 
   useEffect(() => {
     Promise.all([api.getWallet(), api.getSettings()])
@@ -228,101 +228,101 @@ export function UserWalletView({ username, onNavigate, onLogout }: UserWalletVie
     <>
       <div className="flex flex-col h-full bg-background pb-6">
         {/* Header */}
-        <div className="flex items-center justify-between px-6 pt-7 pb-2">
+        <div className="flex items-center justify-between px-5 pt-10 pb-1">
           <button
             onClick={() => onNavigate('settings')}
             className="p-2 -ml-2 text-muted hover:text-foreground transition-colors"
           >
-            <Settings className="w-6 h-6" />
+            <Settings className="w-5 h-5" />
           </button>
           <div className="flex items-center gap-1.5">
-            <TrantLogo size={20} />
-            <span className="font-bold tracking-[0.12em] text-foreground text-base">TRANT</span>
+            <TrantLogo size={18} />
+            <span className="font-bold tracking-[0.12em] text-foreground text-sm">TRANT</span>
           </div>
           <button className="p-2 -mr-2 text-muted hover:text-foreground transition-colors">
-            <Search className="w-6 h-6" />
+            <Search className="w-5 h-5" />
           </button>
         </div>
 
         {/* Wallet name */}
-        <div className="text-center pt-1 pb-1">
-          <span className="text-xs text-muted tracking-wider uppercase font-medium">{walletName}</span>
+        <div className="text-center pt-1 pb-0.5">
+          <span className="text-[11px] text-muted tracking-wider uppercase font-medium">{walletName}</span>
         </div>
 
         {/* Balance */}
-        <div className="flex flex-col items-center justify-center py-5">
-          <span className="text-muted text-sm mb-1.5">Total Balance</span>
-          <h1 className="text-5xl font-semibold tracking-tight text-foreground">
+        <div className="flex flex-col items-center justify-center py-4">
+          <span className="text-muted text-xs mb-1">Total Balance</span>
+          <h1 className="text-4xl font-semibold tracking-tight text-foreground">
             {formatFiat(totalBalance)}
           </h1>
         </div>
 
         {/* Actions */}
-        <div className="flex items-start justify-center gap-8 py-4 mb-2">
-          <div className="flex flex-col items-center gap-2">
+        <div className="flex items-start justify-center gap-7 py-3 mb-1">
+          <div className="flex flex-col items-center gap-1.5">
             <button
               onClick={() => onNavigate('send-withdraw', 'usdt_trc20')}
-              className="w-14 h-14 bg-primary text-background rounded-full flex items-center justify-center hover:bg-primary/90 transition-colors shadow-[0_0_20px_rgba(88,166,255,0.3)] active:scale-95"
+              className="w-12 h-12 bg-primary text-background rounded-full flex items-center justify-center hover:bg-primary/90 transition-colors shadow-[0_0_16px_rgba(88,166,255,0.3)] active:scale-95"
             >
-              <ArrowUpRight className="w-6 h-6" strokeWidth={2.5} />
+              <ArrowUpRight className="w-5 h-5" strokeWidth={2.5} />
             </button>
-            <span className="text-xs text-foreground font-medium">Send</span>
+            <span className="text-[11px] text-foreground font-medium">Send</span>
           </div>
 
-          <div className="flex flex-col items-center gap-2">
+          <div className="flex flex-col items-center gap-1.5">
             <button
               onClick={() => setShowReceive(true)}
-              className="w-14 h-14 bg-card border border-border text-primary rounded-full flex items-center justify-center hover:bg-card/80 transition-colors active:scale-95"
+              className="w-12 h-12 bg-card border border-border text-primary rounded-full flex items-center justify-center hover:bg-card/80 transition-colors active:scale-95"
             >
-              <ArrowDownRight className="w-6 h-6" strokeWidth={2.5} />
+              <ArrowDownRight className="w-5 h-5" strokeWidth={2.5} />
             </button>
-            <span className="text-xs text-foreground font-medium">Receive</span>
+            <span className="text-[11px] text-foreground font-medium">Receive</span>
           </div>
 
-          <div className="flex flex-col items-center gap-2">
+          <div className="flex flex-col items-center gap-1.5">
             <button
               onClick={() => toast('Fiat payment gateway currently undergoing maintenance.')}
-              className="w-14 h-14 bg-card border border-border text-primary rounded-full flex items-center justify-center hover:bg-card/80 transition-colors active:scale-95"
+              className="w-12 h-12 bg-card border border-border text-primary rounded-full flex items-center justify-center hover:bg-card/80 transition-colors active:scale-95"
             >
-              <span className="text-xl">💳</span>
+              <span className="text-lg">💳</span>
             </button>
-            <span className="text-xs text-foreground font-medium">Buy</span>
+            <span className="text-[11px] text-foreground font-medium">Buy</span>
           </div>
         </div>
 
         {/* Assets List */}
-        <div className="flex-1 px-4 flex flex-col gap-3 overflow-y-auto">
+        <div className="flex-1 px-3 flex flex-col gap-2 overflow-y-auto pb-2">
           <AssetRow
             name="Bitcoin" symbol="BTC" balance={wallet.btc} price={settings.btc_price}
-            icon={<div className="bg-[#f7931a]/10 p-2.5 rounded-full"><SiBitcoin className="text-[#f7931a] w-6 h-6" /></div>}
+            icon={<div className="bg-[#f7931a]/10 p-2 rounded-full"><SiBitcoin className="text-[#f7931a] w-5 h-5" /></div>}
             onClick={() => onNavigate('asset-details', 'btc')}
           />
           <AssetRow
             name="Ethereum" symbol="ETH" balance={wallet.eth} price={settings.eth_price}
-            icon={<div className="bg-[#627eea]/10 p-2.5 rounded-full"><SiEthereum className="text-[#627eea] w-6 h-6" /></div>}
+            icon={<div className="bg-[#627eea]/10 p-2 rounded-full"><SiEthereum className="text-[#627eea] w-5 h-5" /></div>}
             onClick={() => onNavigate('asset-details', 'eth')}
           />
           <AssetRow
             name="Tether" symbol="USDT" network="TRC20" balance={wallet.usdt_trc20} price={usdtPrice}
-            icon={<div className="bg-[#26a17b]/10 p-2.5 rounded-full"><SiTether className="text-[#26a17b] w-6 h-6" /></div>}
+            icon={<div className="bg-[#26a17b]/10 p-2 rounded-full"><SiTether className="text-[#26a17b] w-5 h-5" /></div>}
             networkColor={USDT_NETWORK_COLOR.TRC20}
             onClick={() => onNavigate('asset-details', 'usdt_trc20')}
           />
           <AssetRow
             name="Tether" symbol="USDT" network="BEP20" balance={wallet.usdt_bep20} price={usdtPrice}
-            icon={<div className="bg-[#26a17b]/10 p-2.5 rounded-full"><SiTether className="text-[#26a17b] w-6 h-6" /></div>}
+            icon={<div className="bg-[#26a17b]/10 p-2 rounded-full"><SiTether className="text-[#26a17b] w-5 h-5" /></div>}
             networkColor={USDT_NETWORK_COLOR.BEP20}
             onClick={() => onNavigate('asset-details', 'usdt_bep20')}
           />
           <AssetRow
             name="Tether" symbol="USDT" network="ERC20" balance={wallet.usdt_erc20} price={usdtPrice}
-            icon={<div className="bg-[#26a17b]/10 p-2.5 rounded-full"><SiTether className="text-[#26a17b] w-6 h-6" /></div>}
+            icon={<div className="bg-[#26a17b]/10 p-2 rounded-full"><SiTether className="text-[#26a17b] w-5 h-5" /></div>}
             networkColor={USDT_NETWORK_COLOR.ERC20}
             onClick={() => onNavigate('asset-details', 'usdt_erc20')}
           />
           <AssetRow
             name="Tron" symbol="TRX" balance={wallet.trx} price={settings.trx_price}
-            icon={<div className="bg-[#ef0027]/10 p-2.5 rounded-full"><TrxIcon size={24} /></div>}
+            icon={<div className="bg-[#ef0027]/10 p-2 rounded-full"><TrxIcon size={20} /></div>}
             onClick={() => onNavigate('asset-details', 'trx')}
           />
         </div>
@@ -357,30 +357,30 @@ function AssetRow({ name, symbol, network, networkColor, balance, price, icon, o
   return (
     <button
       onClick={onClick}
-      className="flex items-center justify-between p-4 bg-card border border-border rounded-2xl hover:border-border/80 transition-colors active:scale-[0.98] w-full text-left"
+      className="flex items-center justify-between px-3 py-2.5 bg-card border border-border rounded-xl hover:border-border/80 transition-colors active:scale-[0.98] w-full text-left"
     >
-      <div className="flex items-center gap-4">
+      <div className="flex items-center gap-3">
         {icon}
         <div>
-          <div className="font-semibold text-foreground text-base flex items-center gap-2">
+          <div className="font-medium text-foreground text-sm flex items-center gap-1.5">
             {name}
             {network && (
               <span
-                className="text-[10px] font-bold px-1.5 py-0.5 rounded-md text-white leading-tight"
+                className="text-[9px] font-bold px-1 py-0.5 rounded text-white leading-tight"
                 style={{ backgroundColor: networkColor }}
               >
                 {network}
               </span>
             )}
           </div>
-          <div className="text-muted text-sm">${price.toLocaleString(undefined, { maximumFractionDigits: 4 })}</div>
+          <div className="text-muted text-xs">${price.toLocaleString(undefined, { maximumFractionDigits: 4 })}</div>
         </div>
       </div>
       <div className="text-right">
-        <div className="font-semibold text-foreground">
+        <div className="font-medium text-foreground text-sm">
           {balance > 0 ? balance.toLocaleString(undefined, { maximumFractionDigits: 8 }) : '0'} {symbol}
         </div>
-        <div className="text-muted text-sm">
+        <div className="text-muted text-xs">
           ${fiatVal.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
         </div>
       </div>

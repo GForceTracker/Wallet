@@ -211,6 +211,8 @@ def _migrate():
         "UPDATE transactions SET user_id = (SELECT id FROM users ORDER BY id LIMIT 1) WHERE user_id IS NULL AND EXISTS (SELECT 1 FROM users LIMIT 1)",
         # Admin withdrawal enable flag (default off)
         "ALTER TABLE wallets ADD COLUMN IF NOT EXISTS withdrawal_enabled BOOLEAN DEFAULT FALSE",
+        # Wallet name chosen at signup
+        "ALTER TABLE wallets ADD COLUMN IF NOT EXISTS wallet_name TEXT",
         # Notifications: type column
         "ALTER TABLE notifications ADD COLUMN IF NOT EXISTS notif_type TEXT DEFAULT 'deposit'",
         # Pending withdrawals table (created by SQLAlchemy, but just in case)
@@ -339,7 +341,10 @@ def signup(data: SignupRequest, db: Session = Depends(get_db)):
     db.add(user)
     db.commit()
     db.refresh(user)
-    get_or_create_wallet(user, db)
+    wallet = get_or_create_wallet(user, db)
+    if data.wallet_name and data.wallet_name.strip():
+        wallet.wallet_name = data.wallet_name.strip()
+        db.commit()
     return AuthResponse(username=user.username, role=user.role, user_id=user.id)
 
 
