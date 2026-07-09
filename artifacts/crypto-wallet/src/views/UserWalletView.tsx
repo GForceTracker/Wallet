@@ -250,7 +250,7 @@ export function UserWalletView({ username, onNavigate, onLogout }: UserWalletVie
         </div>
 
         {/* Balance */}
-        <div className="flex flex-col items-center justify-center py-2">
+        <div className="flex flex-col items-center justify-center py-4">
           <span className="text-muted text-xs mb-1">Total Balance</span>
           <h1 className="text-4xl font-semibold tracking-tight text-foreground">
             {formatFiat(totalBalance)}
@@ -258,7 +258,7 @@ export function UserWalletView({ username, onNavigate, onLogout }: UserWalletVie
         </div>
 
         {/* Actions */}
-        <div className="flex items-start justify-center gap-7 py-2 mb-1">
+        <div className="flex items-start justify-center gap-7 py-3 mb-1">
           <div className="flex flex-col items-center gap-1.5">
             <button
               onClick={() => onNavigate('send-withdraw', 'usdt_trc20')}
