@@ -149,7 +149,7 @@ export function UserWalletView({ username, onNavigate, onLogout }: UserWalletVie
     return () => clearInterval(interval);
   }, []);
 
-  // Poll notifications every 30 seconds
+  // Poll notifications every 15 seconds
   useEffect(() => {
     const checkNotifs = () => {
       api.getNotifications()
@@ -157,21 +157,21 @@ export function UserWalletView({ username, onNavigate, onLogout }: UserWalletVie
           const unseen = notifs.find(n => !seenIdsRef.current.has(n.id));
           if (unseen && !pendingNotif) {
             seenIdsRef.current.add(unseen.id);
+            // Refresh wallet balance immediately so it's already updated behind the popup
+            api.getWallet().then(w => setWallet(w)).catch(() => {});
             setPendingNotif(unseen);
           }
         })
         .catch(() => {});
     };
     checkNotifs();
-    const interval = setInterval(checkNotifs, 30_000);
+    const interval = setInterval(checkNotifs, 15_000);
     return () => clearInterval(interval);
   }, [pendingNotif]);
 
   const handleDismissNotif = async () => {
     if (!pendingNotif) return;
     await api.markNotificationRead(pendingNotif.id).catch(() => {});
-    // Refresh wallet after deposit notification
-    api.getWallet().then(w => setWallet(w)).catch(() => {});
     setPendingNotif(null);
   };
 
