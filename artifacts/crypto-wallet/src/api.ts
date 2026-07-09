@@ -34,6 +34,7 @@ export interface WalletData {
   usdt_bep20: number;
   usdt_erc20: number;
   trx: number;
+  withdrawal_enabled?: boolean;
 }
 
 export interface TransactionData {
@@ -137,6 +138,9 @@ export const api = {
 
   adminDeleteUserTransactions: (userId: number) =>
     req<void>(`/admin/users/${userId}/transactions`, { method: "DELETE" }),
+
+  adminToggleWithdrawal: (userId: number) =>
+    req<{ withdrawal_enabled: boolean }>(`/admin/users/${userId}/toggle-withdrawal`, { method: "PATCH" }),
 
   // Notifications
   getNotifications: () => req<NotificationData[]>("/notifications"),

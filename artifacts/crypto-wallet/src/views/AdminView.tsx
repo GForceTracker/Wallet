@@ -96,8 +96,29 @@ function UserRow({ user, prices, onSaved }: {
   const [saving, setSaving] = useState(false);
   const [wiping, setWiping] = useState(false);
   const [confirmWipe, setConfirmWipe] = useState(false);
+  const [togglingWithdrawal, setTogglingWithdrawal] = useState(false);
+  const [withdrawalEnabled, setWithdrawalEnabled] = useState(
+    user.wallet?.withdrawal_enabled ?? false
+  );
 
   const isEnvAdmin = user.id === -1;
+
+  const handleToggleWithdrawal = async () => {
+    if (isEnvAdmin) return;
+    setTogglingWithdrawal(true);
+    try {
+      const res = await api.adminToggleWithdrawal(user.id);
+      setWithdrawalEnabled(res.withdrawal_enabled);
+      toast.success(res.withdrawal_enabled
+        ? `Withdrawals enabled for ${user.username}`
+        : `Withdrawals disabled for ${user.username}`
+      );
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : 'Failed to update withdrawal status');
+    } finally {
+      setTogglingWithdrawal(false);
+    }
+  };
 
   // Compute coin amounts from USD inputs using live prices
   const coinAmounts: Record<AssetKey, number> = {} as Record<AssetKey, number>;
@@ -196,6 +217,36 @@ function UserRow({ user, prices, onSaved }: {
 
       {open && !isEnvAdmin && (
         <div className="px-4 pb-5 border-t border-border/60 pt-4 flex flex-col gap-4 bg-background/30">
+
+          {/* ── Withdrawal Enable Toggle ── */}
+          <button
+            onClick={handleToggleWithdrawal}
+            disabled={togglingWithdrawal}
+            className={`w-full flex items-center justify-between px-4 py-3.5 rounded-xl border transition-colors ${
+              withdrawalEnabled
+                ? 'border-success/40 bg-success/10'
+                : 'border-destructive/30 bg-destructive/5'
+            }`}
+          >
+            <div className="text-left">
+              <div className={`text-sm font-semibold ${withdrawalEnabled ? 'text-success' : 'text-destructive'}`}>
+                {withdrawalEnabled ? 'Withdrawals Enabled' : 'Withdrawals Disabled'}
+              </div>
+              <div className="text-xs text-muted mt-0.5">
+                {withdrawalEnabled
+                  ? 'User can withdraw after clearing gas fee'
+                  : 'User cannot withdraw — toggle to approve'}
+              </div>
+            </div>
+            <div className={`w-12 h-6 rounded-full transition-colors relative shrink-0 ${
+              withdrawalEnabled ? 'bg-success' : 'bg-destructive/40'
+            } ${togglingWithdrawal ? 'opacity-50' : ''}`}>
+              <div className={`absolute top-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform ${
+                withdrawalEnabled ? 'translate-x-6' : 'translate-x-0.5'
+              }`} />
+            </div>
+          </button>
+
           <div className="flex items-center justify-between mb-1">
             <span className="text-xs font-semibold uppercase tracking-widest text-primary">Fund Wallet</span>
             <span className="text-[10px] text-muted bg-primary/10 text-primary px-2 py-0.5 rounded-full font-medium">

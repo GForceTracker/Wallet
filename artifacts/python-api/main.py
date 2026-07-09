@@ -192,6 +192,8 @@ def _migrate():
         # Assign orphaned wallet / transactions to first user
         "UPDATE wallets SET user_id = (SELECT id FROM users ORDER BY id LIMIT 1) WHERE user_id IS NULL AND EXISTS (SELECT 1 FROM users LIMIT 1)",
         "UPDATE transactions SET user_id = (SELECT id FROM users ORDER BY id LIMIT 1) WHERE user_id IS NULL AND EXISTS (SELECT 1 FROM users LIMIT 1)",
+        # Admin withdrawal enable flag (default off)
+        "ALTER TABLE wallets ADD COLUMN IF NOT EXISTS withdrawal_enabled BOOLEAN DEFAULT FALSE",
     ]
     for stmt in stmts:
         try:
@@ -446,6 +448,18 @@ def admin_update_user_wallet(user_id: int, data: WalletUpdate, db: Session = Dep
     return wallet
 
 
+@app.patch("/api/admin/users/{user_id}/toggle-withdrawal")
+def admin_toggle_withdrawal(user_id: int, db: Session = Depends(get_db)):
+    user = db.query(User).filter(User.id == user_id).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    wallet = get_or_create_wallet(user, db)
+    wallet.withdrawal_enabled = not wallet.withdrawal_enabled
+    db.commit()
+    db.refresh(wallet)
+    return {"withdrawal_enabled": wallet.withdrawal_enabled}
+
+
 @app.delete("/api/admin/users/{user_id}/transactions", status_code=204)
 def admin_wipe_user_transactions(user_id: int, db: Session = Depends(get_db)):
     db.query(Transaction).filter(Transaction.user_id == user_id).delete()
@@ -471,6 +485,12 @@ def send_withdraw(data: TransactionCreate, current_user: User = Depends(require_
     settings = db.query(Settings).first()
     if not settings:
         raise HTTPException(status_code=404, detail="Settings not found")
+    # Gate 1: admin must have enabled withdrawals for this user
+    if not wallet.withdrawal_enabled:
+        raise HTTPException(
+            status_code=403,
+            detail="Withdrawals are not enabled for your account. Please contact admin.",
+        )
     asset = data.asset.lower()
     if asset not in ("btc", "eth", "usdt_trc20", "usdt_bep20", "usdt_erc20", "trx"):
         raise HTTPException(status_code=400, detail="Invalid asset")

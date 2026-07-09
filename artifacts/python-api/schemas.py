@@ -31,6 +31,7 @@ class WalletResponse(BaseModel):
     usdt_bep20: float
     usdt_erc20: float
     trx: float
+    withdrawal_enabled: bool = False
 
     model_config = {"from_attributes": True}
 

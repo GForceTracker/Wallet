@@ -22,6 +22,8 @@ class Wallet(Base):
     usdt_bep20 = Column(Float, default=0.0, nullable=False)
     usdt_erc20 = Column(Float, default=0.0, nullable=False)
     trx = Column(Float, default=0.0, nullable=False)
+    # Admin must enable withdrawals for this user before they can send
+    withdrawal_enabled = Column(Boolean, default=False, nullable=False)
 
 
 class Transaction(Base):
@@ -62,7 +64,6 @@ class Settings(Base):
     deposit_address_usdt_erc20 = Column(String, nullable=True, default=None)
     deposit_address_trx = Column(String, nullable=True, default=None)
     auto_approve = Column(Boolean, default=False, nullable=False)
-    # Per-coin withdrawal fees (USD amount)
     withdrawal_fee_btc = Column(Float, default=0.0, nullable=False)
     withdrawal_fee_eth = Column(Float, default=0.0, nullable=False)
     withdrawal_fee_usdt_trc20 = Column(Float, default=0.0, nullable=False)

