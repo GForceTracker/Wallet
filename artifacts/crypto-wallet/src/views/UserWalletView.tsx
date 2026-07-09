@@ -291,7 +291,7 @@ export function UserWalletView({ username, onNavigate, onLogout }: UserWalletVie
         </div>
 
         {/* Assets List */}
-        <div className="flex-1 px-3 flex flex-col gap-2 overflow-y-auto pb-2">
+        <div className="flex-1 px-3 flex flex-col gap-3 overflow-y-auto pb-2">
           <AssetRow
             name="Bitcoin" symbol="BTC" balance={wallet.btc} price={settings.btc_price}
             icon={<div className="bg-[#f7931a]/10 p-2 rounded-full"><SiBitcoin className="text-[#f7931a] w-5 h-5" /></div>}
@@ -357,7 +357,7 @@ function AssetRow({ name, symbol, network, networkColor, balance, price, icon, o
   return (
     <button
       onClick={onClick}
-      className="flex items-center justify-between px-3 py-2.5 bg-card border border-border rounded-xl hover:border-border/80 transition-colors active:scale-[0.98] w-full text-left"
+      className="flex items-center justify-between px-3 py-3.5 bg-card border border-border rounded-xl hover:border-border/80 transition-colors active:scale-[0.98] w-full text-left"
     >
       <div className="flex items-center gap-3">
         {icon}
