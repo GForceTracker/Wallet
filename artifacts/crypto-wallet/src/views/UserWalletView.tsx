@@ -2,11 +2,13 @@ import React, { useEffect, useState } from 'react';
 import { Settings, Search, ArrowUpRight, ArrowDownRight, LogOut, Copy, X } from 'lucide-react';
 import { SiBitcoin, SiEthereum, SiTether } from 'react-icons/si';
 
-// react-icons/si doesn't include a Tron icon — use a styled text badge instead
 const TrxIcon = ({ size = 24 }: { size?: number }) => (
-  <svg width={size} height={size} viewBox="0 0 24 24" fill="none">
-    <text x="12" y="17" textAnchor="middle" fontSize="11" fontWeight="bold" fill="#ef0027" fontFamily="monospace">TRX</text>
-  </svg>
+  <img
+    src="https://cdn.jsdelivr.net/gh/atomiclabs/cryptocurrency-icons@1a63530be6e374711a8554f31b17e4cb92c25fa/svg/color/trx.svg"
+    width={size}
+    height={size}
+    alt="TRX"
+  />
 );
 import { ViewState } from '../App';
 import { AssetType } from '../store';
