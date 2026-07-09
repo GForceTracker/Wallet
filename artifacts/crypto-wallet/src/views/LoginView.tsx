@@ -30,9 +30,9 @@ export function LoginView({ onLogin, onSignup }: LoginViewProps) {
   };
 
   return (
-    <div className="flex flex-col h-full bg-background px-6 pt-20 pb-10">
+    <div className="flex flex-col h-full bg-background px-6 pt-10 pb-8">
       {/* Brand mark */}
-      <div className="flex flex-col items-center mb-10">
+      <div className="flex flex-col items-center mb-6">
         <div className="flex items-center gap-2 mb-2">
           <TrantLogo size={32} />
           <span className="font-bold tracking-[0.14em] text-foreground text-2xl">TRANT</span>

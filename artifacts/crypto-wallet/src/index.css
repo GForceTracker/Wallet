@@ -35,6 +35,14 @@
   }
 }
 
+/* ── Safe area (notch / status bar on real phones) ──────────────────────── */
+.safe-top {
+  padding-top: env(safe-area-inset-top, 0px);
+}
+@media (min-width: 640px) {
+  .safe-top { padding-top: 0; }
+}
+
 /* ── Base ────────────────────────────────────────────────────────────────── */
 :root {
   background-color: var(--color-background);

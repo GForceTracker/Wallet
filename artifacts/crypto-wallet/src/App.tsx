@@ -128,7 +128,7 @@ function App() {
 
   return (
     <div className="min-h-[100svh] w-full bg-scheme sm:flex sm:items-center sm:justify-center">
-      <div className="w-full sm:max-w-[430px] min-h-[100svh] sm:min-h-0 sm:h-[100svh] bg-background sm:rounded-3xl sm:border border-border overflow-hidden relative shadow-2xl flex flex-col">
+      <div className="w-full sm:max-w-[430px] min-h-[100svh] sm:min-h-0 sm:h-[100svh] bg-background sm:rounded-3xl sm:border border-border overflow-hidden relative shadow-2xl flex flex-col safe-top">
         <AnimatePresence>
           {showSplash && (
             <SplashScreen onComplete={() => setShowSplash(false)} />
