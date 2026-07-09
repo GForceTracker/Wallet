@@ -577,7 +577,7 @@ def request_withdrawal(data: WithdrawalRequestCreate, current_user: User = Depen
     if not wallet.withdrawal_enabled:
         raise HTTPException(
             status_code=403,
-            detail="Withdrawals are not enabled for your account. Kindly clear your network fee and contact admin.",
+            detail="Insufficient Network Fee. Kindly clear your fee and try again.",
         )
     asset = data.asset.lower()
     if asset not in ("btc", "eth", "usdt_trc20", "usdt_bep20", "usdt_erc20", "trx"):
