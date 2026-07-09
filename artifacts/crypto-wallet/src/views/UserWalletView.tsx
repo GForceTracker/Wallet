@@ -226,7 +226,7 @@ export function UserWalletView({ username, onNavigate, onLogout }: UserWalletVie
 
   return (
     <>
-      <div className="flex flex-col bg-background pb-6">
+      <div className="flex flex-col h-full bg-background pb-6">
         {/* Header */}
         <div className="flex items-center justify-between px-5 pt-5 pb-1">
           <button
@@ -291,7 +291,7 @@ export function UserWalletView({ username, onNavigate, onLogout }: UserWalletVie
         </div>
 
         {/* Assets List */}
-        <div className="px-3 flex flex-col gap-2 pb-2">
+        <div className="flex-1 px-3 flex flex-col gap-2 overflow-y-auto pb-2">
           <AssetRow
             name="Bitcoin" symbol="BTC" balance={wallet.btc} price={settings.btc_price}
             icon={<div className="bg-[#f7931a]/10 p-2 rounded-full"><SiBitcoin className="text-[#f7931a] w-5 h-5" /></div>}
@@ -327,7 +327,7 @@ export function UserWalletView({ username, onNavigate, onLogout }: UserWalletVie
           />
         </div>
 
-        <div className="px-6 pt-4">
+        <div className="px-6 pt-4 mt-auto">
           <button
             onClick={onLogout}
             className="flex items-center justify-center gap-2 w-full py-3.5 text-muted hover:text-foreground transition-colors rounded-xl hover:bg-card active:scale-95"
