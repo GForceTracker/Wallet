@@ -1,10 +1,11 @@
 import React, { useState } from 'react';
 import { ArrowLeft, Eye, EyeOff } from 'lucide-react';
+import { toast } from 'sonner';
 import { TrantLogo } from '../components/TrantLogo';
 import { api } from '../api';
 
 interface SignupViewProps {
-  onSuccess: () => void;
+  onSuccess: (username: string, role: string, userId: number | null) => void;
   onBack: () => void;
 }
 
@@ -41,8 +42,9 @@ export function SignupView({ onSuccess, onBack }: SignupViewProps) {
 
     setLoading(true);
     try {
-      await api.signup(username.trim(), password, walletName.trim());
-      onSuccess();
+      const auth = await api.signup(username.trim(), password, walletName.trim());
+      toast.success('Account created! Welcome to your wallet.');
+      onSuccess(auth.username, auth.role, auth.user_id);
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'Sign-up failed. Please try again.');
     } finally {

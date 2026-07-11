@@ -85,7 +85,7 @@ function App() {
       case 'signup':
         return (
           <SignupView
-            onSuccess={() => navigate('login')}
+            onSuccess={handleLogin}
             onBack={() => navigate('login')}
           />
         );
