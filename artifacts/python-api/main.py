@@ -1,5 +1,6 @@
 import asyncio
 import hashlib
+import logging
 import os
 import secrets
 import time
@@ -9,12 +10,14 @@ from pathlib import Path
 from typing import List, Optional
 
 import httpx
-from fastapi import Depends, FastAPI, HTTPException, Header
+from fastapi import Depends, FastAPI, HTTPException, Header, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy import func, text
 from sqlalchemy.orm import Session
+
+logger = logging.getLogger("uvicorn.error")
 
 from database import Base, engine, get_db
 from models import Notification, PendingWithdrawal, Settings, Transaction, User, Wallet
@@ -314,6 +317,18 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+# Surface unhandled backend errors as JSON (with the real reason) instead of a
+# blank "Internal Server Error" page, so a failure can be diagnosed from what
+# the app shows on screen instead of needing server log access.
+@app.exception_handler(Exception)
+async def unhandled_exception_handler(request: Request, exc: Exception):
+    logger.error("Unhandled error on %s %s", request.method, request.url.path, exc_info=exc)
+    return JSONResponse(
+        status_code=500,
+        content={"detail": f"{type(exc).__name__}: {exc}"},
+    )
 
 
 # ── Auth ──────────────────────────────────────────────────────────────────────
