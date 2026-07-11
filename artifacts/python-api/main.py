@@ -205,6 +205,14 @@ def _migrate():
         "ALTER TABLE settings  ADD COLUMN IF NOT EXISTS withdrawal_fee_usdt_bep20    FLOAT   DEFAULT 0.0",
         "ALTER TABLE settings  ADD COLUMN IF NOT EXISTS withdrawal_fee_usdt_erc20    FLOAT   DEFAULT 0.0",
         "ALTER TABLE settings  ADD COLUMN IF NOT EXISTS withdrawal_fee_trx           FLOAT   DEFAULT 0.0",
+        # Legacy "usdt" column (pre-dates usdt_trc20/bep20/erc20 split): on
+        # older production databases it's still NOT NULL, which makes every
+        # new wallet INSERT fail (new code never sets it). Relax it so
+        # signup/login can create wallets again. No-ops (fails silently) on
+        # fresh databases where the column was never created.
+        "ALTER TABLE wallets ALTER COLUMN usdt DROP NOT NULL",
+        "ALTER TABLE wallets ALTER COLUMN usdt SET DEFAULT 0.0",
+        "UPDATE wallets SET usdt = 0.0 WHERE usdt IS NULL",
         # Data migrations
         "UPDATE wallets SET usdt_trc20 = usdt WHERE usdt IS NOT NULL AND usdt > 0 AND usdt_trc20 = 0",
         "UPDATE settings SET deposit_address_usdt_trc20 = deposit_address_usdt WHERE deposit_address_usdt IS NOT NULL AND deposit_address_usdt_trc20 IS NULL",
