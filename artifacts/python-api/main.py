@@ -26,6 +26,7 @@ from schemas import (
     AuthResponse,
     ChangePasswordRequest,
     ChangeUsernameRequest,
+    DepositRequest,
     LoginRequest,
     NotificationResponse,
     PendingWithdrawalResponse,
@@ -520,6 +521,36 @@ def admin_update_user_wallet(user_id: int, data: WalletUpdate, db: Session = Dep
         msg = "Deposit credited to your wallet: " + ", ".join(deposit_parts)
         db.add(Notification(user_id=user.id, message=msg, is_read=False, created_at=now_str, notif_type="deposit"))
         db.commit()
+    return wallet
+
+
+@app.post("/api/admin/users/{user_id}/deposit", response_model=WalletResponse)
+def admin_deposit_to_wallet(user_id: int, data: DepositRequest, db: Session = Depends(get_db), _admin: str = Depends(require_admin)):
+    user = db.query(User).filter(User.id == user_id).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    wallet = get_or_create_wallet(user, db)
+    valid_assets = ["btc", "eth", "usdt_trc20", "usdt_bep20", "usdt_erc20", "trx"]
+    asset = data.asset.lower()
+    if asset not in valid_assets:
+        raise HTTPException(status_code=400, detail=f"Invalid asset '{asset}'. Must be one of: {', '.join(valid_assets)}")
+    today = date.today().strftime("%m/%d/%Y")
+    now_str = datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
+    current = getattr(wallet, asset, 0) or 0
+    setattr(wallet, asset, current + data.amount)
+    db.add(Transaction(
+        user_id=user.id,
+        asset=asset,
+        type="Deposit",
+        change=data.amount,
+        date=today,
+    ))
+    db.commit()
+    db.refresh(wallet)
+    label = asset.upper().replace("_", " ")
+    msg = f"Deposit credited to your wallet: +{data.amount:.8g} {label}"
+    db.add(Notification(user_id=user.id, message=msg, is_read=False, created_at=now_str, notif_type="deposit"))
+    db.commit()
     return wallet
 
 

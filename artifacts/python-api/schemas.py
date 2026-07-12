@@ -61,6 +61,11 @@ class WalletUpdate(BaseModel):
     trx: float = Field(ge=0)
 
 
+class DepositRequest(BaseModel):
+    asset: str = Field(min_length=1)
+    amount: float = Field(gt=0, description="Crypto amount to add to existing balance")
+
+
 # ── Transactions ──────────────────────────────────────────────────────────────
 
 class TransactionResponse(BaseModel):

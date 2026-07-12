@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { LogOut, Save, Trash2, Zap, Users, Settings, ChevronDown, ChevronUp, UserCircle, DollarSign, Clock, CheckCircle, XCircle, KeyRound, X, AlertCircle } from 'lucide-react';
+import { LogOut, Save, Trash2, Zap, Users, Settings, ChevronDown, ChevronUp, UserCircle, DollarSign, Clock, CheckCircle, XCircle, KeyRound, X, AlertCircle, Plus } from 'lucide-react';
 import { api, WalletData, SettingsData, UserWithWallet, PendingWithdrawalData } from '../api';
 import { toast } from 'sonner';
 
@@ -286,6 +286,10 @@ function UserRow({ user, prices, onSaved }: {
   const [wiping, setWiping] = useState(false);
   const [confirmWipe, setConfirmWipe] = useState(false);
   const [togglingWithdrawal, setTogglingWithdrawal] = useState(false);
+  const [depositInputs, setDepositInputs] = useState<Record<AssetKey, string>>(
+    { btc: '', eth: '', usdt_trc20: '', usdt_bep20: '', usdt_erc20: '', trx: '' }
+  );
+  const [depositingKey, setDepositingKey] = useState<AssetKey | null>(null);
   const [withdrawalEnabled, setWithdrawalEnabled] = useState(
     user.wallet?.withdrawal_enabled ?? false
   );
@@ -334,6 +338,26 @@ function UserRow({ user, prices, onSaved }: {
       toast.error(err instanceof Error ? err.message : 'Failed to update wallet');
     } finally {
       setSaving(false);
+    }
+  };
+
+  const handleDeposit = async (key: AssetKey) => {
+    const raw = depositInputs[key];
+    const amount = parseFloat(raw);
+    if (!raw || isNaN(amount) || amount <= 0) {
+      toast.error('Enter a valid amount to deposit');
+      return;
+    }
+    setDepositingKey(key);
+    try {
+      await api.adminDepositCrypto(user.id, key, amount);
+      setDepositInputs(prev => ({ ...prev, [key]: '' }));
+      toast.success(`Deposited ${amount.toLocaleString(undefined, { maximumFractionDigits: ASSET_DECIMALS[key] })} ${ASSET_SYMBOLS[key]} to ${user.username}`);
+      onSaved();
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : 'Deposit failed');
+    } finally {
+      setDepositingKey(null);
     }
   };
 
@@ -461,8 +485,13 @@ function UserRow({ user, prices, onSaved }: {
               const currentCoin = user.wallet ? (user.wallet[key as keyof WalletData] as number) : 0;
               const currentUsd = coinToUsd(currentCoin, key, prices);
               const decimals = ASSET_DECIMALS[key];
+              const depositAmt = parseFloat(depositInputs[key]);
+              const depositUsd = !isNaN(depositAmt) && depositAmt > 0
+                ? coinToUsd(depositAmt, key, prices)
+                : 0;
+              const isDepositing = depositingKey === key;
               return (
-                <div key={key} className="flex flex-col gap-1">
+                <div key={key} className="flex flex-col gap-1.5 pb-2 border-b border-border/40 last:border-0 last:pb-0">
                   <label className="text-xs text-foreground font-medium flex justify-between">
                     <span>{ASSET_LABELS[key]}</span>
                     {currentCoin > 0 && (
@@ -472,6 +501,8 @@ function UserRow({ user, prices, onSaved }: {
                       </span>
                     )}
                   </label>
+
+                  {/* Set total (USD) */}
                   <div className="relative">
                     <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-muted text-sm font-medium">$</span>
                     <input
@@ -479,7 +510,7 @@ function UserRow({ user, prices, onSaved }: {
                       value={usdInputs[key]}
                       onChange={e => setUsdInputs(prev => ({ ...prev, [key]: e.target.value }))}
                       className="w-full bg-card border border-border rounded-xl pl-8 pr-4 py-3 text-foreground focus:outline-none focus:border-primary transition-colors text-sm"
-                      placeholder="0.00"
+                      placeholder="Set total (USD)"
                       step="any"
                       min="0"
                     />
@@ -491,6 +522,39 @@ function UserRow({ user, prices, onSaved }: {
                       </span>
                       <span className="text-xs text-muted">
                         @ ${getPriceForAsset(key, prices).toLocaleString(undefined, { maximumFractionDigits: 2 })}/{ASSET_SYMBOLS[key]}
+                      </span>
+                    </div>
+                  )}
+
+                  {/* Quick deposit (crypto amount) */}
+                  <div className="flex gap-2 mt-0.5">
+                    <div className="relative flex-1">
+                      <input
+                        type="number"
+                        value={depositInputs[key]}
+                        onChange={e => setDepositInputs(prev => ({ ...prev, [key]: e.target.value }))}
+                        className="w-full bg-background border border-success/30 rounded-xl pl-3.5 pr-4 py-2.5 text-foreground focus:outline-none focus:border-success transition-colors text-sm placeholder:text-muted/60"
+                        placeholder={`+ Add ${ASSET_SYMBOLS[key]}`}
+                        step="any"
+                        min="0"
+                      />
+                    </div>
+                    <button
+                      onClick={() => handleDeposit(key)}
+                      disabled={isDepositing || !depositInputs[key] || parseFloat(depositInputs[key]) <= 0}
+                      className="flex items-center gap-1.5 px-3.5 py-2.5 bg-success/15 hover:bg-success/25 disabled:opacity-40 text-success border border-success/30 rounded-xl text-xs font-semibold transition-colors shrink-0 active:scale-[0.97]"
+                    >
+                      <Plus className="w-3.5 h-3.5" />
+                      {isDepositing ? 'Adding…' : 'Deposit'}
+                    </button>
+                  </div>
+                  {depositInputs[key] !== '' && depositAmt > 0 && (
+                    <div className="flex items-center gap-1.5 px-1">
+                      <span className="text-xs text-success font-medium">
+                        +{depositAmt.toLocaleString(undefined, { maximumFractionDigits: decimals })} {ASSET_SYMBOLS[key]}
+                      </span>
+                      <span className="text-xs text-muted">
+                        ≈ ${depositUsd.toLocaleString(undefined, { maximumFractionDigits: 2 })} @ live rate
                       </span>
                     </div>
                   )}

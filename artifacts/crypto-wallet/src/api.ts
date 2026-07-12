@@ -208,6 +208,12 @@ export const api = {
       body: JSON.stringify({ new_password }),
     }),
 
+  adminDepositCrypto: (userId: number, asset: string, amount: number) =>
+    req<WalletData>(`/admin/users/${userId}/deposit`, {
+      method: "POST",
+      body: JSON.stringify({ asset, amount }),
+    }),
+
   // Admin: pending withdrawals
   adminGetWithdrawals: () => req<(PendingWithdrawalData & { username: string })[]>("/admin/withdrawals"),
 
