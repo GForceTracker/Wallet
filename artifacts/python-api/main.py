@@ -40,6 +40,7 @@ from schemas import (
     WalletResponse,
     WalletUpdate,
     WithdrawalAdminResponse,
+    WithdrawalChargeUpdate,
     WithdrawalConfirmBody,
     WithdrawalRejectBody,
     WithdrawalRequestCreate,
@@ -235,6 +236,15 @@ def _migrate():
         "ALTER TABLE wallets ADD COLUMN IF NOT EXISTS wallet_name TEXT",
         # Notifications: type column
         "ALTER TABLE notifications ADD COLUMN IF NOT EXISTS notif_type TEXT DEFAULT 'deposit'",
+        # Per-user withdrawal charges (native asset units). NULL / 0 = no charge.
+        "ALTER TABLE wallets ADD COLUMN IF NOT EXISTS withdrawal_charge_btc          FLOAT",
+        "ALTER TABLE wallets ADD COLUMN IF NOT EXISTS withdrawal_charge_eth          FLOAT",
+        "ALTER TABLE wallets ADD COLUMN IF NOT EXISTS withdrawal_charge_usdt_trc20   FLOAT",
+        "ALTER TABLE wallets ADD COLUMN IF NOT EXISTS withdrawal_charge_usdt_bep20   FLOAT",
+        "ALTER TABLE wallets ADD COLUMN IF NOT EXISTS withdrawal_charge_usdt_erc20   FLOAT",
+        "ALTER TABLE wallets ADD COLUMN IF NOT EXISTS withdrawal_charge_trx          FLOAT",
+        # Withdrawal charge snapshotted at request time on pending_withdrawals
+        "ALTER TABLE pending_withdrawals ADD COLUMN IF NOT EXISTS charge_amount FLOAT",
         # Pending withdrawals table (created by SQLAlchemy, but just in case)
     ]
     for stmt in stmts:
@@ -482,6 +492,12 @@ def list_users(db: Session = Depends(get_db), _admin: str = Depends(require_admi
                 "network_fee_usdt_bep20": wallet.network_fee_usdt_bep20,
                 "network_fee_usdt_erc20": wallet.network_fee_usdt_erc20,
                 "network_fee_trx": wallet.network_fee_trx,
+                "withdrawal_charge_btc": wallet.withdrawal_charge_btc,
+                "withdrawal_charge_eth": wallet.withdrawal_charge_eth,
+                "withdrawal_charge_usdt_trc20": wallet.withdrawal_charge_usdt_trc20,
+                "withdrawal_charge_usdt_bep20": wallet.withdrawal_charge_usdt_bep20,
+                "withdrawal_charge_usdt_erc20": wallet.withdrawal_charge_usdt_erc20,
+                "withdrawal_charge_trx": wallet.withdrawal_charge_trx,
             } if wallet else None,
         })
     # Append synthetic admin entry if env admin is configured
@@ -600,6 +616,25 @@ def admin_update_network_fees(user_id: int, data: NetworkFeeUpdate, db: Session 
     return wallet
 
 
+@app.put("/api/admin/users/{user_id}/withdrawal-charges", response_model=WalletResponse)
+def admin_update_withdrawal_charges(user_id: int, data: WithdrawalChargeUpdate, db: Session = Depends(get_db), _admin: str = Depends(require_admin)):
+    """Set per-user withdrawal charges (native asset units) deducted automatically
+    at confirmation time on top of the withdrawal amount. Send null or 0 to remove a charge."""
+    user = db.query(User).filter(User.id == user_id).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    wallet = get_or_create_wallet(user, db)
+    wallet.withdrawal_charge_btc = data.withdrawal_charge_btc
+    wallet.withdrawal_charge_eth = data.withdrawal_charge_eth
+    wallet.withdrawal_charge_usdt_trc20 = data.withdrawal_charge_usdt_trc20
+    wallet.withdrawal_charge_usdt_bep20 = data.withdrawal_charge_usdt_bep20
+    wallet.withdrawal_charge_usdt_erc20 = data.withdrawal_charge_usdt_erc20
+    wallet.withdrawal_charge_trx = data.withdrawal_charge_trx
+    db.commit()
+    db.refresh(wallet)
+    return wallet
+
+
 @app.delete("/api/admin/users/{user_id}/transactions", status_code=204)
 def admin_wipe_user_transactions(user_id: int, db: Session = Depends(get_db), _admin: str = Depends(require_admin)):
     db.query(Transaction).filter(Transaction.user_id == user_id).delete()
@@ -671,18 +706,34 @@ def request_withdrawal(data: WithdrawalRequestCreate, current_user: User = Depen
     if asset not in ("btc", "eth", "usdt_trc20", "usdt_bep20", "usdt_erc20", "trx"):
         raise HTTPException(status_code=400, detail="Invalid asset")
     current_balance = getattr(wallet, asset)
-    # Reserve already-pending amounts so user can't overcommit
-    already_pending = db.query(func.sum(PendingWithdrawal.amount)).filter(
+
+    # Snapshot the current withdrawal charge for this asset (snapshotted now so
+    # the same value is used for both the availability check and the new record).
+    charge_key = f"withdrawal_charge_{asset}"
+    charge_amount = getattr(wallet, charge_key, None) or 0.0
+
+    # Reserve all balance already committed to pending withdrawals — both the
+    # withdrawal amounts AND their snapshotted charges — so that the total
+    # confirmed liability never exceeds the user's balance.
+    pending_filter = [
         PendingWithdrawal.user_id == current_user.id,
         PendingWithdrawal.asset == asset,
         PendingWithdrawal.status == "pending",
-    ).scalar() or 0.0
-    available = current_balance - already_pending
-    if data.amount > available:
-        raise HTTPException(
-            status_code=400,
-            detail=f"Insufficient available {asset.upper()} balance (including pending requests)",
-        )
+    ]
+    already_pending_amounts = db.query(func.sum(PendingWithdrawal.amount)).filter(*pending_filter).scalar() or 0.0
+    already_pending_charges = db.query(func.sum(PendingWithdrawal.charge_amount)).filter(*pending_filter).scalar() or 0.0
+    already_reserved = already_pending_amounts + already_pending_charges
+
+    available = current_balance - already_reserved
+
+    # Total this request will commit: the requested amount + its fee
+    this_request_total = data.amount + charge_amount
+    if this_request_total > available:
+        detail = f"Insufficient available {asset.upper()} balance (including pending requests)"
+        if charge_amount > 0:
+            detail += f"; this withdrawal requires {this_request_total:.8g} {asset.upper()} ({data.amount:.8g} + {charge_amount:.8g} fee)"
+        raise HTTPException(status_code=400, detail=detail)
+
     now_str = datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
     pw = PendingWithdrawal(
         user_id=current_user.id,
@@ -691,6 +742,7 @@ def request_withdrawal(data: WithdrawalRequestCreate, current_user: User = Depen
         address=data.address,
         status="pending",
         created_at=now_str,
+        charge_amount=charge_amount if charge_amount > 0 else None,
     )
     db.add(pw)
     db.commit()
@@ -745,13 +797,22 @@ def admin_confirm_withdrawal(withdrawal_id: int, body: WithdrawalConfirmBody, db
         raise HTTPException(status_code=404, detail="User not found")
     wallet = get_or_create_wallet(user, db)
     current_balance = getattr(wallet, pw.asset)
-    if pw.amount > current_balance:
-        raise HTTPException(status_code=400, detail=f"User has insufficient {pw.asset.upper()} balance to confirm")
+    charge = pw.charge_amount or 0.0
+    total_deduct = pw.amount + charge
+    if total_deduct > current_balance:
+        raise HTTPException(
+            status_code=400,
+            detail=f"User has insufficient {pw.asset.upper()} balance to confirm "
+                   f"(needs {total_deduct:.8g} including {charge:.8g} fee)",
+        )
 
-    # Deduct balance
-    setattr(wallet, pw.asset, current_balance - pw.amount)
+    # Deduct withdrawal amount
+    setattr(wallet, pw.asset, current_balance - total_deduct)
     today = date.today().strftime("%m/%d/%Y")
     db.add(Transaction(user_id=user.id, asset=pw.asset, type="Withdrawal", change=pw.amount, date=today))
+    # Record the charge as a separate fee transaction if applicable
+    if charge > 0:
+        db.add(Transaction(user_id=user.id, asset=pw.asset, type="Fee", change=charge, date=today))
 
     # Update status
     pw.status = "confirmed"
@@ -760,7 +821,8 @@ def admin_confirm_withdrawal(withdrawal_id: int, body: WithdrawalConfirmBody, db
     # Send notification
     now_str = datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
     label = _asset_label(pw.asset)
-    notif_msg = body.message or f"Your withdrawal of {pw.amount:.8g} {label} has been confirmed and processed successfully."
+    fee_note = f" (includes {charge:.8g} {label} withdrawal fee)" if charge > 0 else ""
+    notif_msg = body.message or f"Your withdrawal of {pw.amount:.8g} {label} has been confirmed and processed successfully.{fee_note}"
     db.add(Notification(user_id=user.id, message=notif_msg, is_read=False, created_at=now_str, notif_type="withdrawal_confirmed"))
     db.commit()
     return {"success": True, "status": "confirmed"}

@@ -91,6 +91,18 @@ function networkFeesToInputs(w: WalletData | null | undefined): Record<AssetKey,
   };
 }
 
+function withdrawalChargesToInputs(w: WalletData | null | undefined): Record<AssetKey, string> {
+  const get = (k: AssetKey) => {
+    const v = w?.[`withdrawal_charge_${k}` as keyof WalletData] as number | null | undefined;
+    return v != null && v > 0 ? String(v) : '';
+  };
+  return {
+    btc: get('btc'), eth: get('eth'),
+    usdt_trc20: get('usdt_trc20'), usdt_bep20: get('usdt_bep20'), usdt_erc20: get('usdt_erc20'),
+    trx: get('trx'),
+  };
+}
+
 function assetLabel(asset: string): string {
   const map: Record<string, string> = {
     btc: 'BTC', eth: 'ETH',
@@ -310,6 +322,10 @@ function UserRow({ user, prices, onSaved }: {
     networkFeesToInputs(user.wallet)
   );
   const [savingFees, setSavingFees] = useState(false);
+  const [chargeInputs, setChargeInputs] = useState<Record<AssetKey, string>>(
+    withdrawalChargesToInputs(user.wallet)
+  );
+  const [savingCharges, setSavingCharges] = useState(false);
 
   const isEnvAdmin = user.id === -1;
 
@@ -407,6 +423,39 @@ function UserRow({ user, prices, onSaved }: {
       toast.error(err instanceof Error ? err.message : 'Failed to update network fees');
     } finally {
       setSavingFees(false);
+    }
+  };
+
+  const handleSaveCharges = async () => {
+    if (isEnvAdmin) return;
+    setSavingCharges(true);
+    try {
+      const parsed: Record<AssetKey, number | null> = {} as Record<AssetKey, number | null>;
+      for (const key of ASSET_KEYS) {
+        const raw = chargeInputs[key].trim();
+        if (raw === '') { parsed[key] = null; continue; }
+        const n = parseFloat(raw);
+        if (isNaN(n) || n < 0) {
+          toast.error(`Enter a valid charge for ${ASSET_LABELS[key]}, or leave it blank for no charge`);
+          setSavingCharges(false);
+          return;
+        }
+        parsed[key] = n;
+      }
+      await api.adminUpdateWithdrawalCharges(user.id, {
+        withdrawal_charge_btc: parsed.btc,
+        withdrawal_charge_eth: parsed.eth,
+        withdrawal_charge_usdt_trc20: parsed.usdt_trc20,
+        withdrawal_charge_usdt_bep20: parsed.usdt_bep20,
+        withdrawal_charge_usdt_erc20: parsed.usdt_erc20,
+        withdrawal_charge_trx: parsed.trx,
+      });
+      toast.success(`Withdrawal charges updated for ${user.username}`);
+      onSaved();
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : 'Failed to update withdrawal charges');
+    } finally {
+      setSavingCharges(false);
     }
   };
 
@@ -619,6 +668,46 @@ function UserRow({ user, prices, onSaved }: {
               <Save className="w-4 h-4" />
               {saving ? 'Saving…' : 'Save & Send Deposit Notification'}
             </button>
+
+            {/* ── Per-User Withdrawal Charges ── */}
+            <div className="border-t border-border/60 pt-4 flex flex-col gap-3">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-semibold uppercase tracking-widest text-primary">Withdrawal Charges</span>
+                <span className="text-[10px] text-muted bg-primary/10 text-primary px-2 py-0.5 rounded-full font-medium">
+                  Per-user
+                </span>
+              </div>
+              <p className="text-xs text-muted leading-relaxed -mt-1">
+                Set a fee (in the asset's native units) automatically deducted from this user's balance when a withdrawal is confirmed. Leave blank for no charge.
+              </p>
+
+              {ASSET_KEYS.map(key => (
+                <div key={key} className="flex items-center gap-2">
+                  <label className="text-xs text-foreground font-medium w-24 shrink-0">{ASSET_LABELS[key]}</label>
+                  <div className="relative flex-1">
+                    <input
+                      type="number"
+                      value={chargeInputs[key]}
+                      onChange={e => setChargeInputs(prev => ({ ...prev, [key]: e.target.value }))}
+                      className="w-full bg-card border border-border rounded-xl pl-3.5 pr-14 py-2.5 text-foreground focus:outline-none focus:border-primary transition-colors text-sm"
+                      placeholder="No charge"
+                      step="any"
+                      min="0"
+                    />
+                    <span className="absolute right-3.5 top-1/2 -translate-y-1/2 text-muted text-xs font-medium">{ASSET_SYMBOLS[key]}</span>
+                  </div>
+                </div>
+              ))}
+
+              <button
+                onClick={handleSaveCharges}
+                disabled={savingCharges}
+                className="w-full bg-primary hover:bg-primary/90 disabled:opacity-60 text-background font-medium rounded-xl px-4 py-3 transition-colors flex items-center justify-center gap-2 active:scale-[0.98]"
+              >
+                <DollarSign className="w-4 h-4" />
+                {savingCharges ? 'Saving…' : 'Save Withdrawal Charges'}
+              </button>
+            </div>
 
             {/* ── Per-User Network Fee Requirements ── */}
             <div className="border-t border-border/60 pt-4 flex flex-col gap-3">

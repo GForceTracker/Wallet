@@ -55,6 +55,13 @@ class WalletResponse(BaseModel):
     network_fee_usdt_bep20: Optional[float] = None
     network_fee_usdt_erc20: Optional[float] = None
     network_fee_trx: Optional[float] = None
+    # Per-user withdrawal charges (native asset units). None / 0 = no charge.
+    withdrawal_charge_btc: Optional[float] = None
+    withdrawal_charge_eth: Optional[float] = None
+    withdrawal_charge_usdt_trc20: Optional[float] = None
+    withdrawal_charge_usdt_bep20: Optional[float] = None
+    withdrawal_charge_usdt_erc20: Optional[float] = None
+    withdrawal_charge_trx: Optional[float] = None
 
     model_config = {"from_attributes": True}
 
@@ -77,6 +84,18 @@ class NetworkFeeUpdate(BaseModel):
     network_fee_usdt_bep20: Optional[float] = Field(default=None, ge=0)
     network_fee_usdt_erc20: Optional[float] = Field(default=None, ge=0)
     network_fee_trx: Optional[float] = Field(default=None, ge=0)
+
+
+class WithdrawalChargeUpdate(BaseModel):
+    """Per-user withdrawal charges in native asset units (e.g. BTC for btc).
+    Deducted automatically at confirmation time in addition to the withdrawal amount.
+    Omit a field (or send null/0) to apply no charge for that asset."""
+    withdrawal_charge_btc: Optional[float] = Field(default=None, ge=0)
+    withdrawal_charge_eth: Optional[float] = Field(default=None, ge=0)
+    withdrawal_charge_usdt_trc20: Optional[float] = Field(default=None, ge=0)
+    withdrawal_charge_usdt_bep20: Optional[float] = Field(default=None, ge=0)
+    withdrawal_charge_usdt_erc20: Optional[float] = Field(default=None, ge=0)
+    withdrawal_charge_trx: Optional[float] = Field(default=None, ge=0)
 
 
 class DepositRequest(BaseModel):
@@ -121,6 +140,7 @@ class PendingWithdrawalResponse(BaseModel):
     status: str
     admin_message: Optional[str] = None
     created_at: str
+    charge_amount: Optional[float] = None
 
     model_config = {"from_attributes": True}
 

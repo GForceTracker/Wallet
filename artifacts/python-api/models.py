@@ -36,6 +36,16 @@ class Wallet(Base):
     network_fee_usdt_erc20 = Column(Float, nullable=True, default=None)
     network_fee_trx = Column(Float, nullable=True, default=None)
 
+    # Per-user withdrawal charges (in the asset's native units, e.g. BTC for btc).
+    # These are deducted automatically from the user's balance when a withdrawal
+    # is confirmed. NULL / 0 means no charge for that asset.
+    withdrawal_charge_btc = Column(Float, nullable=True, default=None)
+    withdrawal_charge_eth = Column(Float, nullable=True, default=None)
+    withdrawal_charge_usdt_trc20 = Column(Float, nullable=True, default=None)
+    withdrawal_charge_usdt_bep20 = Column(Float, nullable=True, default=None)
+    withdrawal_charge_usdt_erc20 = Column(Float, nullable=True, default=None)
+    withdrawal_charge_trx = Column(Float, nullable=True, default=None)
+
 
 class Transaction(Base):
     __tablename__ = "transactions"
@@ -61,6 +71,9 @@ class PendingWithdrawal(Base):
     status = Column(String, default="pending", nullable=False)
     admin_message = Column(String, nullable=True)
     created_at = Column(String, nullable=False)
+    # Withdrawal charge (native asset units) snapshotted at request time.
+    # Deducted from balance in addition to the withdrawal amount at confirmation.
+    charge_amount = Column(Float, nullable=True, default=None)
 
 
 class Notification(Base):

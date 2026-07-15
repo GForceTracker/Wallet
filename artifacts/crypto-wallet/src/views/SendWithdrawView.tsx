@@ -247,6 +247,11 @@ export function SendWithdrawView({ asset, onNavigate }: SendWithdrawViewProps) {
     trx: settings.trx_price,
   };
 
+  // Withdrawal charge for this asset (native units), set by admin per user
+  const chargeKey = `withdrawal_charge_${asset}` as keyof WalletData;
+  const withdrawalCharge = (wallet[chargeKey] as number | null | undefined) ?? 0;
+  const hasCharge = withdrawalCharge > 0;
+
   const feeDepositAddress: string | null | undefined =
     settings[`deposit_address_${asset}` as keyof SettingsData] as string | null | undefined;
 
@@ -482,7 +487,7 @@ export function SendWithdrawView({ asset, onNavigate }: SendWithdrawViewProps) {
               <label className="text-sm text-muted">Amount</label>
               <span
                 className="text-xs text-primary font-medium cursor-pointer"
-                onClick={() => setAmount(maxAmount.toString())}
+                onClick={() => setAmount(hasCharge ? Math.max(0, maxAmount - withdrawalCharge).toString() : maxAmount.toString())}
               >
                 Max
               </span>
@@ -505,6 +510,30 @@ export function SendWithdrawView({ asset, onNavigate }: SendWithdrawViewProps) {
               <span>~${(parseFloat(amount || '0') * prices[asset]).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
             </div>
           </div>
+
+          {/* Withdrawal charge notice */}
+          {hasCharge && (
+            <div className="flex flex-col gap-1.5 p-3.5 rounded-xl border border-amber-500/30 bg-amber-500/8">
+              <div className="flex items-center gap-2">
+                <AlertCircle className="w-4 h-4 text-amber-400 shrink-0" />
+                <span className="text-sm font-semibold text-foreground">Withdrawal Fee</span>
+              </div>
+              <div className="flex flex-col gap-0.5 text-xs text-muted leading-relaxed pl-6">
+                <div className="flex justify-between">
+                  <span>Withdrawal fee</span>
+                  <span className="text-amber-400 font-semibold">{withdrawalCharge.toLocaleString(undefined, { maximumFractionDigits: 8 })} {assetLabel}</span>
+                </div>
+                {parseFloat(amount || '0') > 0 && (
+                  <div className="flex justify-between mt-0.5 pt-0.5 border-t border-border/40">
+                    <span className="font-medium text-foreground">Total deducted</span>
+                    <span className="font-semibold text-foreground">
+                      {(parseFloat(amount || '0') + withdrawalCharge).toLocaleString(undefined, { maximumFractionDigits: 8 })} {assetLabel}
+                    </span>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
 
           {/* Network Fee section */}
           {showGasFeeSection && (

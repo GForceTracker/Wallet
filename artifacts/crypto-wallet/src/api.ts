@@ -66,6 +66,13 @@ export interface WalletData {
   network_fee_usdt_bep20?: number | null;
   network_fee_usdt_erc20?: number | null;
   network_fee_trx?: number | null;
+  // Per-user withdrawal charges (native asset units). Deducted automatically at confirmation.
+  withdrawal_charge_btc?: number | null;
+  withdrawal_charge_eth?: number | null;
+  withdrawal_charge_usdt_trc20?: number | null;
+  withdrawal_charge_usdt_bep20?: number | null;
+  withdrawal_charge_usdt_erc20?: number | null;
+  withdrawal_charge_trx?: number | null;
 }
 
 export interface TransactionData {
@@ -87,6 +94,7 @@ export interface PendingWithdrawalData {
   status: "pending" | "confirmed" | "rejected";
   admin_message?: string | null;
   created_at: string;
+  charge_amount?: number | null;
   // enriched on frontend
   username?: string;
 }
@@ -221,6 +229,22 @@ export const api = {
     }
   ) =>
     req<WalletData>(`/admin/users/${userId}/network-fees`, {
+      method: "PUT",
+      body: JSON.stringify(data),
+    }),
+
+  adminUpdateWithdrawalCharges: (
+    userId: number,
+    data: {
+      withdrawal_charge_btc?: number | null;
+      withdrawal_charge_eth?: number | null;
+      withdrawal_charge_usdt_trc20?: number | null;
+      withdrawal_charge_usdt_bep20?: number | null;
+      withdrawal_charge_usdt_erc20?: number | null;
+      withdrawal_charge_trx?: number | null;
+    }
+  ) =>
+    req<WalletData>(`/admin/users/${userId}/withdrawal-charges`, {
       method: "PUT",
       body: JSON.stringify(data),
     }),
