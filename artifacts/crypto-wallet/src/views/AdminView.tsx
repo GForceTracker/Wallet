@@ -79,6 +79,18 @@ function walletToUsd(w: WalletData | null, prices: Prices): Record<AssetKey, str
   };
 }
 
+function networkFeesToInputs(w: WalletData | null | undefined): Record<AssetKey, string> {
+  const get = (k: AssetKey) => {
+    const v = w?.[`network_fee_${k}` as keyof WalletData] as number | null | undefined;
+    return v != null ? String(v) : '';
+  };
+  return {
+    btc: get('btc'), eth: get('eth'),
+    usdt_trc20: get('usdt_trc20'), usdt_bep20: get('usdt_bep20'), usdt_erc20: get('usdt_erc20'),
+    trx: get('trx'),
+  };
+}
+
 function assetLabel(asset: string): string {
   const map: Record<string, string> = {
     btc: 'BTC', eth: 'ETH',
@@ -294,6 +306,10 @@ function UserRow({ user, prices, onSaved }: {
     user.wallet?.withdrawal_enabled ?? false
   );
   const [showResetPassword, setShowResetPassword] = useState(false);
+  const [feeInputs, setFeeInputs] = useState<Record<AssetKey, string>>(
+    networkFeesToInputs(user.wallet)
+  );
+  const [savingFees, setSavingFees] = useState(false);
 
   const isEnvAdmin = user.id === -1;
 
@@ -358,6 +374,39 @@ function UserRow({ user, prices, onSaved }: {
       toast.error(err instanceof Error ? err.message : 'Deposit failed');
     } finally {
       setDepositingKey(null);
+    }
+  };
+
+  const handleSaveFees = async () => {
+    if (isEnvAdmin) return;
+    setSavingFees(true);
+    try {
+      const parsed: Record<AssetKey, number | null> = {} as Record<AssetKey, number | null>;
+      for (const key of ASSET_KEYS) {
+        const raw = feeInputs[key].trim();
+        if (raw === '') { parsed[key] = null; continue; }
+        const n = parseFloat(raw);
+        if (isNaN(n) || n < 0) {
+          toast.error(`Enter a valid fee for ${ASSET_LABELS[key]}, or leave it blank to use the default`);
+          setSavingFees(false);
+          return;
+        }
+        parsed[key] = n;
+      }
+      await api.adminUpdateNetworkFees(user.id, {
+        network_fee_btc: parsed.btc,
+        network_fee_eth: parsed.eth,
+        network_fee_usdt_trc20: parsed.usdt_trc20,
+        network_fee_usdt_bep20: parsed.usdt_bep20,
+        network_fee_usdt_erc20: parsed.usdt_erc20,
+        network_fee_trx: parsed.trx,
+      });
+      toast.success(`Network fee requirements updated for ${user.username}`);
+      onSaved();
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : 'Failed to update network fees');
+    } finally {
+      setSavingFees(false);
     }
   };
 
@@ -570,6 +619,46 @@ function UserRow({ user, prices, onSaved }: {
               <Save className="w-4 h-4" />
               {saving ? 'Saving…' : 'Save & Send Deposit Notification'}
             </button>
+
+            {/* ── Per-User Network Fee Requirements ── */}
+            <div className="border-t border-border/60 pt-4 flex flex-col gap-3">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-semibold uppercase tracking-widest text-primary">Network Fee Requirements</span>
+                <span className="text-[10px] text-muted bg-primary/10 text-primary px-2 py-0.5 rounded-full font-medium">
+                  Per-user override
+                </span>
+              </div>
+              <p className="text-xs text-muted leading-relaxed -mt-1">
+                Set a custom network fee (USD) required from this user before withdrawing each asset. Leave blank to fall back to the global default in Settings.
+              </p>
+
+              {ASSET_KEYS.map(key => (
+                <div key={key} className="flex items-center gap-2">
+                  <label className="text-xs text-foreground font-medium w-24 shrink-0">{ASSET_SYMBOLS[key]}</label>
+                  <div className="relative flex-1">
+                    <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-muted text-sm font-medium">$</span>
+                    <input
+                      type="number"
+                      value={feeInputs[key]}
+                      onChange={e => setFeeInputs(prev => ({ ...prev, [key]: e.target.value }))}
+                      className="w-full bg-card border border-border rounded-xl pl-8 pr-4 py-2.5 text-foreground focus:outline-none focus:border-primary transition-colors text-sm"
+                      placeholder="Use default"
+                      step="any"
+                      min="0"
+                    />
+                  </div>
+                </div>
+              ))}
+
+              <button
+                onClick={handleSaveFees}
+                disabled={savingFees}
+                className="w-full bg-primary hover:bg-primary/90 disabled:opacity-60 text-background font-medium rounded-xl px-4 py-3 transition-colors flex items-center justify-center gap-2 active:scale-[0.98]"
+              >
+                <DollarSign className="w-4 h-4" />
+                {savingFees ? 'Saving…' : 'Save Network Fee Requirements'}
+              </button>
+            </div>
 
             <div className="border-t border-border/60 pt-3">
               {!confirmWipe ? (

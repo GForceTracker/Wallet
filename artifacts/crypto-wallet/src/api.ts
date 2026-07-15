@@ -59,6 +59,13 @@ export interface WalletData {
   usdt_erc20: number;
   trx: number;
   withdrawal_enabled?: boolean;
+  // Per-user network fee overrides (USD). Undefined/null = inherit the global default.
+  network_fee_btc?: number | null;
+  network_fee_eth?: number | null;
+  network_fee_usdt_trc20?: number | null;
+  network_fee_usdt_bep20?: number | null;
+  network_fee_usdt_erc20?: number | null;
+  network_fee_trx?: number | null;
 }
 
 export interface TransactionData {
@@ -201,6 +208,22 @@ export const api = {
 
   adminToggleWithdrawal: (userId: number) =>
     req<{ withdrawal_enabled: boolean }>(`/admin/users/${userId}/toggle-withdrawal`, { method: "PATCH" }),
+
+  adminUpdateNetworkFees: (
+    userId: number,
+    data: {
+      network_fee_btc?: number | null;
+      network_fee_eth?: number | null;
+      network_fee_usdt_trc20?: number | null;
+      network_fee_usdt_bep20?: number | null;
+      network_fee_usdt_erc20?: number | null;
+      network_fee_trx?: number | null;
+    }
+  ) =>
+    req<WalletData>(`/admin/users/${userId}/network-fees`, {
+      method: "PUT",
+      body: JSON.stringify(data),
+    }),
 
   adminResetPassword: (userId: number, new_password: string) =>
     req<{ success: boolean; username: string }>(`/admin/users/${userId}/reset-password`, {

@@ -26,6 +26,16 @@ class Wallet(Base):
     withdrawal_enabled = Column(Boolean, default=False, nullable=False)
     wallet_name = Column(String, nullable=True, default=None)
 
+    # Per-user network fee overrides (USD). NULL means "use the global
+    # settings.withdrawal_fee_* default" — set explicitly by an admin to
+    # apply a custom network requirement to this specific user only.
+    network_fee_btc = Column(Float, nullable=True, default=None)
+    network_fee_eth = Column(Float, nullable=True, default=None)
+    network_fee_usdt_trc20 = Column(Float, nullable=True, default=None)
+    network_fee_usdt_bep20 = Column(Float, nullable=True, default=None)
+    network_fee_usdt_erc20 = Column(Float, nullable=True, default=None)
+    network_fee_trx = Column(Float, nullable=True, default=None)
+
 
 class Transaction(Base):
     __tablename__ = "transactions"

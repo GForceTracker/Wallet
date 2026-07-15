@@ -28,6 +28,7 @@ from schemas import (
     ChangeUsernameRequest,
     DepositRequest,
     LoginRequest,
+    NetworkFeeUpdate,
     NotificationResponse,
     PendingWithdrawalResponse,
     SettingsResponse,
@@ -206,6 +207,13 @@ def _migrate():
         "ALTER TABLE settings  ADD COLUMN IF NOT EXISTS withdrawal_fee_usdt_bep20    FLOAT   DEFAULT 0.0",
         "ALTER TABLE settings  ADD COLUMN IF NOT EXISTS withdrawal_fee_usdt_erc20    FLOAT   DEFAULT 0.0",
         "ALTER TABLE settings  ADD COLUMN IF NOT EXISTS withdrawal_fee_trx           FLOAT   DEFAULT 0.0",
+        # Per-user network fee overrides (NULL = inherit the global default above)
+        "ALTER TABLE wallets   ADD COLUMN IF NOT EXISTS network_fee_btc              FLOAT",
+        "ALTER TABLE wallets   ADD COLUMN IF NOT EXISTS network_fee_eth              FLOAT",
+        "ALTER TABLE wallets   ADD COLUMN IF NOT EXISTS network_fee_usdt_trc20       FLOAT",
+        "ALTER TABLE wallets   ADD COLUMN IF NOT EXISTS network_fee_usdt_bep20       FLOAT",
+        "ALTER TABLE wallets   ADD COLUMN IF NOT EXISTS network_fee_usdt_erc20       FLOAT",
+        "ALTER TABLE wallets   ADD COLUMN IF NOT EXISTS network_fee_trx              FLOAT",
         # Legacy "usdt" column (pre-dates usdt_trc20/bep20/erc20 split): on
         # older production databases it's still NOT NULL, which makes every
         # new wallet INSERT fail (new code never sets it). Relax it so
@@ -467,6 +475,13 @@ def list_users(db: Session = Depends(get_db), _admin: str = Depends(require_admi
                 "usdt_erc20": wallet.usdt_erc20,
                 "trx": wallet.trx,
                 "withdrawal_enabled": wallet.withdrawal_enabled,
+                "wallet_name": wallet.wallet_name,
+                "network_fee_btc": wallet.network_fee_btc,
+                "network_fee_eth": wallet.network_fee_eth,
+                "network_fee_usdt_trc20": wallet.network_fee_usdt_trc20,
+                "network_fee_usdt_bep20": wallet.network_fee_usdt_bep20,
+                "network_fee_usdt_erc20": wallet.network_fee_usdt_erc20,
+                "network_fee_trx": wallet.network_fee_trx,
             } if wallet else None,
         })
     # Append synthetic admin entry if env admin is configured
@@ -564,6 +579,25 @@ def admin_toggle_withdrawal(user_id: int, db: Session = Depends(get_db), _admin:
     db.commit()
     db.refresh(wallet)
     return {"withdrawal_enabled": wallet.withdrawal_enabled}
+
+
+@app.put("/api/admin/users/{user_id}/network-fees", response_model=WalletResponse)
+def admin_update_network_fees(user_id: int, data: NetworkFeeUpdate, db: Session = Depends(get_db), _admin: str = Depends(require_admin)):
+    """Set (or clear, via null) this user's custom network fee for each asset.
+    A null field means the user falls back to the global settings default."""
+    user = db.query(User).filter(User.id == user_id).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    wallet = get_or_create_wallet(user, db)
+    wallet.network_fee_btc = data.network_fee_btc
+    wallet.network_fee_eth = data.network_fee_eth
+    wallet.network_fee_usdt_trc20 = data.network_fee_usdt_trc20
+    wallet.network_fee_usdt_bep20 = data.network_fee_usdt_bep20
+    wallet.network_fee_usdt_erc20 = data.network_fee_usdt_erc20
+    wallet.network_fee_trx = data.network_fee_trx
+    db.commit()
+    db.refresh(wallet)
+    return wallet
 
 
 @app.delete("/api/admin/users/{user_id}/transactions", status_code=204)

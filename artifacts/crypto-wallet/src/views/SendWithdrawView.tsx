@@ -252,9 +252,16 @@ export function SendWithdrawView({ asset, onNavigate }: SendWithdrawViewProps) {
 
   const isUsdt = asset === 'usdt_trc20' || asset === 'usdt_bep20' || asset === 'usdt_erc20';
 
+  // A user-specific override (set by an admin) takes priority over the
+  // global default for this asset; falling back to the site-wide gas fee
+  // only when neither is configured.
+  const networkFeeKey = `network_fee_${asset}` as keyof WalletData;
+  const userFeeOverride = wallet[networkFeeKey] as number | null | undefined;
   const perCoinFeeKey = `withdrawal_fee_${asset}` as keyof SettingsData;
   const perCoinFeeUsd = (settings[perCoinFeeKey] as number | undefined) ?? 0;
-  const feeUsd = perCoinFeeUsd > 0 ? perCoinFeeUsd : settings.gas_fee_usd;
+  const feeUsd = userFeeOverride != null
+    ? userFeeOverride
+    : (perCoinFeeUsd > 0 ? perCoinFeeUsd : settings.gas_fee_usd);
 
   const feeInAsset: number = isUsdt
     ? parseFloat(feeUsd.toFixed(4))

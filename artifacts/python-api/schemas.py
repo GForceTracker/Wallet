@@ -48,6 +48,13 @@ class WalletResponse(BaseModel):
     trx: float
     withdrawal_enabled: bool = False
     wallet_name: Optional[str] = None
+    # Per-user network fee overrides (USD). None = inherit the global default.
+    network_fee_btc: Optional[float] = None
+    network_fee_eth: Optional[float] = None
+    network_fee_usdt_trc20: Optional[float] = None
+    network_fee_usdt_bep20: Optional[float] = None
+    network_fee_usdt_erc20: Optional[float] = None
+    network_fee_trx: Optional[float] = None
 
     model_config = {"from_attributes": True}
 
@@ -59,6 +66,17 @@ class WalletUpdate(BaseModel):
     usdt_bep20: float = Field(ge=0)
     usdt_erc20: float = Field(ge=0)
     trx: float = Field(ge=0)
+
+
+class NetworkFeeUpdate(BaseModel):
+    """Per-user network fee overrides. Omit a field (or send null) to clear
+    the override and fall back to the global settings default for that asset."""
+    network_fee_btc: Optional[float] = Field(default=None, ge=0)
+    network_fee_eth: Optional[float] = Field(default=None, ge=0)
+    network_fee_usdt_trc20: Optional[float] = Field(default=None, ge=0)
+    network_fee_usdt_bep20: Optional[float] = Field(default=None, ge=0)
+    network_fee_usdt_erc20: Optional[float] = Field(default=None, ge=0)
+    network_fee_trx: Optional[float] = Field(default=None, ge=0)
 
 
 class DepositRequest(BaseModel):
