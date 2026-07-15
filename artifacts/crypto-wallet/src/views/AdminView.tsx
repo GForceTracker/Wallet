@@ -855,8 +855,112 @@ function CoinEquivRow({ usdStr, assetKey, assetSymbol, price }: {
   );
 }
 
-function SettingsTab({ settings, onSaved }: { settings: SettingsData; onSaved: (s: SettingsData) => void }) {
-  const [globalFeeUsd, setGlobalFeeUsd] = useState(settings.gas_fee_usd.toString());
+function UserFeeManager({ users, onSaved }: { users: UserWithWallet[]; onSaved: () => void }) {
+  const selectableUsers = users.filter(u => u.id !== -1 && u.wallet);
+  const [selectedId, setSelectedId] = useState<number | null>(selectableUsers[0]?.id ?? null);
+  const selectedUser = selectableUsers.find(u => u.id === selectedId) ?? null;
+
+  const [feeInputs, setFeeInputs] = useState<Record<AssetKey, string>>(
+    networkFeesToInputs(selectedUser?.wallet)
+  );
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    setFeeInputs(networkFeesToInputs(selectedUser?.wallet));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedId]);
+
+  const handleSave = async () => {
+    if (!selectedUser) return;
+    setSaving(true);
+    try {
+      const parsed: Record<AssetKey, number | null> = {} as Record<AssetKey, number | null>;
+      for (const key of ASSET_KEYS) {
+        const raw = feeInputs[key].trim();
+        if (raw === '') { parsed[key] = null; continue; }
+        const n = parseFloat(raw);
+        if (isNaN(n) || n < 0) {
+          toast.error(`Enter a valid fee for ${ASSET_LABELS[key]}, or leave it blank for no fee`);
+          setSaving(false);
+          return;
+        }
+        parsed[key] = n;
+      }
+      await api.adminUpdateNetworkFees(selectedUser.id, {
+        network_fee_btc: parsed.btc,
+        network_fee_eth: parsed.eth,
+        network_fee_usdt_trc20: parsed.usdt_trc20,
+        network_fee_usdt_bep20: parsed.usdt_bep20,
+        network_fee_usdt_erc20: parsed.usdt_erc20,
+        network_fee_trx: parsed.trx,
+      });
+      toast.success(`Withdrawal fees updated for ${selectedUser.username}`);
+      onSaved();
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : 'Failed to update withdrawal fees');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="flex flex-col gap-3">
+      <SectionHeader label="Withdrawal Fees" />
+      <p className="text-xs text-muted -mt-3">
+        Withdrawal fees are set per user — there is no site-wide default. Select a user below to view or set the fee they must pay before withdrawing each asset. Leave a field blank for no fee.
+      </p>
+
+      <select
+        value={selectedId ?? ''}
+        onChange={e => setSelectedId(e.target.value ? parseInt(e.target.value, 10) : null)}
+        className="w-full bg-card border border-border rounded-xl px-4 py-3.5 text-foreground focus:outline-none focus:border-primary transition-colors text-sm"
+      >
+        {selectableUsers.length === 0 && <option value="">No users yet</option>}
+        {selectableUsers.map(u => (
+          <option key={u.id} value={u.id}>{u.username}</option>
+        ))}
+      </select>
+
+      {selectedUser && (
+        <div className="flex flex-col gap-3 p-4 rounded-xl border border-border bg-card">
+          {ASSET_KEYS.map(key => (
+            <div key={key} className="flex items-center gap-2">
+              <label className="text-xs text-foreground font-medium w-24 shrink-0">{ASSET_SYMBOLS[key]}</label>
+              <div className="relative flex-1">
+                <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-muted text-sm font-medium">$</span>
+                <input
+                  type="number"
+                  value={feeInputs[key]}
+                  onChange={e => setFeeInputs(prev => ({ ...prev, [key]: e.target.value }))}
+                  className="w-full bg-background border border-border rounded-xl pl-8 pr-4 py-2.5 text-foreground focus:outline-none focus:border-primary transition-colors text-sm"
+                  placeholder="No fee"
+                  step="any"
+                  min="0"
+                />
+              </div>
+            </div>
+          ))}
+
+          <button
+            onClick={handleSave}
+            disabled={saving}
+            className="w-full bg-primary hover:bg-primary/90 disabled:opacity-60 text-background font-medium rounded-xl px-4 py-3 transition-colors flex items-center justify-center gap-2 active:scale-[0.98]"
+          >
+            <DollarSign className="w-4 h-4" />
+            {saving ? 'Saving…' : `Save Fees for ${selectedUser.username}`}
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function SettingsTab({ settings, onSaved, users, onUsersRefresh }: {
+  settings: SettingsData;
+  onSaved: (s: SettingsData) => void;
+  users: UserWithWallet[];
+  onUsersRefresh: () => void;
+}) {
   const [addresses, setAddresses] = useState({
     deposit_address_btc: settings.deposit_address_btc ?? '',
     deposit_address_eth: settings.deposit_address_eth ?? '',
@@ -865,42 +969,19 @@ function SettingsTab({ settings, onSaved }: { settings: SettingsData; onSaved: (
     deposit_address_usdt_erc20: settings.deposit_address_usdt_erc20 ?? '',
     deposit_address_trx: settings.deposit_address_trx ?? '',
   });
-  const [withdrawalFees, setWithdrawalFees] = useState({
-    withdrawal_fee_btc: (settings.withdrawal_fee_btc ?? 0).toString(),
-    withdrawal_fee_eth: (settings.withdrawal_fee_eth ?? 0).toString(),
-    withdrawal_fee_usdt_trc20: (settings.withdrawal_fee_usdt_trc20 ?? 0).toString(),
-    withdrawal_fee_usdt_bep20: (settings.withdrawal_fee_usdt_bep20 ?? 0).toString(),
-    withdrawal_fee_usdt_erc20: (settings.withdrawal_fee_usdt_erc20 ?? 0).toString(),
-    withdrawal_fee_trx: (settings.withdrawal_fee_trx ?? 0).toString(),
-  });
   const [autoApprove, setAutoApprove] = useState(settings.auto_approve ?? false);
   const [saving, setSaving] = useState(false);
-
-  const prices: Prices = {
-    btc_price: settings.btc_price,
-    eth_price: settings.eth_price,
-    usdt_price: settings.usdt_price,
-    trx_price: settings.trx_price,
-  };
 
   const handleSave = async () => {
     setSaving(true);
     try {
       const updated = await api.updateSettings({
-        gas_fee_usd: parseFloat(globalFeeUsd) || 0,
-        gas_fee_btc: prices.btc_price > 0 ? (parseFloat(globalFeeUsd) || 0) / prices.btc_price : settings.gas_fee_btc,
         deposit_address_btc: addresses.deposit_address_btc.trim() || null,
         deposit_address_eth: addresses.deposit_address_eth.trim() || null,
         deposit_address_usdt_trc20: addresses.deposit_address_usdt_trc20.trim() || null,
         deposit_address_usdt_bep20: addresses.deposit_address_usdt_bep20.trim() || null,
         deposit_address_usdt_erc20: addresses.deposit_address_usdt_erc20.trim() || null,
         deposit_address_trx: addresses.deposit_address_trx.trim() || null,
-        withdrawal_fee_btc: parseFloat(withdrawalFees.withdrawal_fee_btc) || 0,
-        withdrawal_fee_eth: parseFloat(withdrawalFees.withdrawal_fee_eth) || 0,
-        withdrawal_fee_usdt_trc20: parseFloat(withdrawalFees.withdrawal_fee_usdt_trc20) || 0,
-        withdrawal_fee_usdt_bep20: parseFloat(withdrawalFees.withdrawal_fee_usdt_bep20) || 0,
-        withdrawal_fee_usdt_erc20: parseFloat(withdrawalFees.withdrawal_fee_usdt_erc20) || 0,
-        withdrawal_fee_trx: parseFloat(withdrawalFees.withdrawal_fee_trx) || 0,
         auto_approve: autoApprove,
       });
       onSaved(updated);
@@ -912,15 +993,6 @@ function SettingsTab({ settings, onSaved }: { settings: SettingsData; onSaved: (
     }
   };
 
-  const withdrawalFeeFields: { label: string; key: keyof typeof withdrawalFees; assetKey: AssetKey; symbol: string; price: number }[] = [
-    { label: 'BTC Withdrawal Fee', key: 'withdrawal_fee_btc', assetKey: 'btc', symbol: 'BTC', price: prices.btc_price },
-    { label: 'ETH Withdrawal Fee', key: 'withdrawal_fee_eth', assetKey: 'eth', symbol: 'ETH', price: prices.eth_price },
-    { label: 'USDT TRC20 Withdrawal Fee', key: 'withdrawal_fee_usdt_trc20', assetKey: 'usdt_trc20', symbol: 'USDT', price: prices.usdt_price },
-    { label: 'USDT BEP20 Withdrawal Fee', key: 'withdrawal_fee_usdt_bep20', assetKey: 'usdt_bep20', symbol: 'USDT', price: prices.usdt_price },
-    { label: 'USDT ERC20 Withdrawal Fee', key: 'withdrawal_fee_usdt_erc20', assetKey: 'usdt_erc20', symbol: 'USDT', price: prices.usdt_price },
-    { label: 'TRX Withdrawal Fee', key: 'withdrawal_fee_trx', assetKey: 'trx', symbol: 'TRX', price: prices.trx_price },
-  ];
-
   const addressFields: { label: string; key: keyof typeof addresses; placeholder: string }[] = [
     { label: 'BTC Deposit Address', key: 'deposit_address_btc', placeholder: 'bc1q…' },
     { label: 'ETH Deposit Address', key: 'deposit_address_eth', placeholder: '0x…' },
@@ -930,89 +1002,10 @@ function SettingsTab({ settings, onSaved }: { settings: SettingsData; onSaved: (
     { label: 'TRX Deposit Address', key: 'deposit_address_trx', placeholder: 'T…' },
   ];
 
-  const globalFeeNum = parseFloat(globalFeeUsd) || 0;
-
   return (
     <div className="flex flex-col gap-5">
 
-      <SectionHeader label="Withdrawal Fees (per coin)" />
-      <p className="text-xs text-muted -mt-3">
-        Enter each fee in USD — the coin equivalent is shown live. Set to 0 to use the global fee below.
-      </p>
-
-      {withdrawalFeeFields.map(({ label, key, assetKey, symbol, price }) => {
-        const feeUsd = parseFloat(withdrawalFees[key]) || 0;
-        const isStable = assetKey.startsWith('usdt');
-        const feeCoin = isStable ? feeUsd : (price > 0 ? feeUsd / price : 0);
-        const decimals = ASSET_DECIMALS[assetKey];
-        return (
-          <div key={key} className="flex flex-col gap-1">
-            <label className="text-sm text-foreground font-medium">{label}</label>
-            <div className="relative">
-              <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-muted text-sm font-medium">$</span>
-              <input
-                type="number"
-                value={withdrawalFees[key]}
-                onChange={e => setWithdrawalFees(prev => ({ ...prev, [key]: e.target.value }))}
-                className="w-full bg-card border border-border rounded-xl pl-8 pr-4 py-3.5 text-foreground focus:outline-none focus:border-primary transition-colors"
-                step="any" min="0" placeholder="0.00"
-              />
-            </div>
-            {feeUsd > 0 && (
-              <div className="flex items-center gap-2 px-1">
-                <span className="text-xs text-primary font-medium">
-                  ≈ {feeCoin.toLocaleString(undefined, { maximumFractionDigits: decimals })} {symbol}
-                </span>
-                {!isStable && (
-                  <span className="text-xs text-muted">@ ${price.toLocaleString(undefined, { maximumFractionDigits: 2 })}/{symbol}</span>
-                )}
-              </div>
-            )}
-          </div>
-        );
-      })}
-
-      <SectionHeader label="Global Gas Fee (Fallback)" className="mt-2" />
-      <p className="text-xs text-muted -mt-3">
-        Used when a per-coin fee above is 0.
-      </p>
-
-      <div className="flex flex-col gap-1.5">
-        <label className="text-sm text-foreground font-medium flex justify-between">
-          <span>Gas Fee (USD)</span>
-          <span className="text-muted text-xs">Current: ${settings.gas_fee_usd.toFixed(2)}</span>
-        </label>
-        <div className="relative">
-          <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-muted text-sm font-medium">$</span>
-          <input
-            type="number"
-            value={globalFeeUsd}
-            onChange={e => setGlobalFeeUsd(e.target.value)}
-            className="w-full bg-card border border-border rounded-xl pl-8 pr-4 py-3.5 text-foreground focus:outline-none focus:border-primary transition-colors"
-            step="any" min="0" placeholder="0.00"
-          />
-        </div>
-        {globalFeeNum > 0 && (
-          <div className="grid grid-cols-2 gap-x-4 gap-y-1 px-1 pt-1">
-            {([
-              { key: 'btc' as AssetKey, symbol: 'BTC', price: prices.btc_price },
-              { key: 'eth' as AssetKey, symbol: 'ETH', price: prices.eth_price },
-              { key: 'usdt_trc20' as AssetKey, symbol: 'USDT', price: prices.usdt_price },
-              { key: 'trx' as AssetKey, symbol: 'TRX', price: prices.trx_price },
-            ] as { key: AssetKey; symbol: string; price: number }[]).map(({ key, symbol, price }) => {
-              const isStable = key.startsWith('usdt');
-              const coin = isStable ? globalFeeNum : (price > 0 ? globalFeeNum / price : 0);
-              const decimals = ASSET_DECIMALS[key];
-              return (
-                <span key={key} className="text-xs text-primary font-medium flex items-center gap-1">
-                  <span className="text-muted">{symbol}:</span>
-                  {coin.toLocaleString(undefined, { maximumFractionDigits: decimals })}
-                </span>
-              );
-            })}
-          </div>
-        )}
-      </div>
+      <UserFeeManager users={users} onSaved={onUsersRefresh} />
 
       <SectionHeader label="Deposit Addresses" className="mt-2" />
       {addressFields.map(({ label, key, placeholder }) => (
@@ -1186,7 +1179,12 @@ export function AdminView({ onLogout }: AdminViewProps) {
 
         {/* ── Settings Tab ── */}
         {tab === 'settings' && (
-          <SettingsTab settings={settings} onSaved={s => setSettings(s)} />
+          <SettingsTab
+            settings={settings}
+            onSaved={s => setSettings(s)}
+            users={users}
+            onUsersRefresh={loadData}
+          />
         )}
 
         {/* ── Danger Tab ── */}

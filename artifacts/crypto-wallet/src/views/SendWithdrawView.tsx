@@ -252,16 +252,12 @@ export function SendWithdrawView({ asset, onNavigate }: SendWithdrawViewProps) {
 
   const isUsdt = asset === 'usdt_trc20' || asset === 'usdt_bep20' || asset === 'usdt_erc20';
 
-  // A user-specific override (set by an admin) takes priority over the
-  // global default for this asset; falling back to the site-wide gas fee
-  // only when neither is configured.
+  // Each user has their own network fee requirement, set by an admin for
+  // this specific asset. There is no site-wide fallback — if an admin
+  // hasn't set a fee for this user, no fee is required.
   const networkFeeKey = `network_fee_${asset}` as keyof WalletData;
   const userFeeOverride = wallet[networkFeeKey] as number | null | undefined;
-  const perCoinFeeKey = `withdrawal_fee_${asset}` as keyof SettingsData;
-  const perCoinFeeUsd = (settings[perCoinFeeKey] as number | undefined) ?? 0;
-  const feeUsd = userFeeOverride != null
-    ? userFeeOverride
-    : (perCoinFeeUsd > 0 ? perCoinFeeUsd : settings.gas_fee_usd);
+  const feeUsd = userFeeOverride ?? 0;
 
   const feeInAsset: number = isUsdt
     ? parseFloat(feeUsd.toFixed(4))
@@ -287,8 +283,9 @@ export function SendWithdrawView({ asset, onNavigate }: SendWithdrawViewProps) {
     }
   };
 
-  // Gas fee section shown when auto-approve is off and a deposit address is configured
-  const showGasFeeSection = !settings.auto_approve && !!feeDepositAddress;
+  // Gas fee section shown when auto-approve is off, a deposit address is configured,
+  // and this user actually has a network fee requirement set for this asset.
+  const showGasFeeSection = !settings.auto_approve && !!feeDepositAddress && feeUsd > 0;
 
   const copyFeeAddress = () => {
     if (!feeDepositAddress) return;
