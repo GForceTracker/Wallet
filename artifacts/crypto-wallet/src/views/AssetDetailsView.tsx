@@ -320,7 +320,7 @@ export function AssetDetailsView({ asset, onNavigate }: AssetDetailsViewProps) {
 
                 return (
                   <div key={tx.id} className="flex flex-col pb-4 border-b border-border/50 last:border-0 gap-1">
-                    <div className="flex items-center justify-between gap-3">
+                    <div className="flex items-start justify-between gap-3">
                       <div className="flex items-center gap-3 min-w-0">
                         <div className={`w-10 h-10 rounded-full flex items-center justify-center shrink-0 ${colorClass}`}>
                           {isPending ? (
@@ -338,8 +338,9 @@ export function AssetDetailsView({ asset, onNavigate }: AssetDetailsViewProps) {
                           <div className="text-muted text-xs">{tx.date}</div>
                         </div>
                       </div>
-                      <div className={`font-semibold text-right shrink-0 ${textColor}`}>
-                        {prefix}{truncate5(tx.change).toLocaleString(undefined, { maximumFractionDigits: 5 })} {details.symbol}
+                      <div className={`font-semibold text-right shrink-0 leading-snug ${textColor}`}>
+                        <div>{prefix}{truncate5(tx.change).toLocaleString(undefined, { maximumFractionDigits: 5 })}</div>
+                        <div className="text-xs font-normal text-muted mt-0.5">{details.symbol}</div>
                       </div>
                     </div>
                     {/* Show rejection message inline */}
