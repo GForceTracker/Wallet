@@ -249,8 +249,9 @@ export function AssetDetailsView({ asset, onNavigate }: AssetDetailsViewProps) {
         {/* Asset Info */}
         <div className="flex flex-col items-center justify-center py-4 px-4">
           {details.icon}
-          <h1 className="text-3xl font-semibold tracking-tight text-foreground mt-4 mb-1">
-            {balance > 0 ? balance.toLocaleString(undefined, { maximumFractionDigits: 8 }) : '0'} {details.symbol}
+          <h1 className="text-3xl font-semibold tracking-tight text-foreground mt-4 mb-1 text-center leading-tight">
+            <span className="block">{balance > 0 ? balance.toLocaleString(undefined, { maximumFractionDigits: 5 }) : '0'}</span>
+            <span className="block">{details.symbol}</span>
           </h1>
           <div className="text-muted text-base">
             ${fiatVal.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
@@ -334,8 +335,9 @@ export function AssetDetailsView({ asset, onNavigate }: AssetDetailsViewProps) {
                           <div className="text-muted text-xs">{tx.date}</div>
                         </div>
                       </div>
-                      <div className={`font-semibold ${textColor}`}>
-                        {prefix}{tx.change.toLocaleString(undefined, { maximumFractionDigits: 8 })} {details.symbol}
+                      <div className={`font-semibold text-right ${textColor}`}>
+                        <span className="block">{prefix}{tx.change.toLocaleString(undefined, { maximumFractionDigits: 5 })}</span>
+                        <span className="block text-xs font-medium opacity-80">{details.symbol}</span>
                       </div>
                     </div>
                     {/* Show rejection message inline */}
