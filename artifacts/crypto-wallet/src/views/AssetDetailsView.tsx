@@ -317,9 +317,9 @@ export function AssetDetailsView({ asset, onNavigate }: AssetDetailsViewProps) {
 
                 return (
                   <div key={tx.id} className="flex flex-col pb-4 border-b border-border/50 last:border-0 gap-1">
-                    <div className="flex items-center justify-between">
+                    <div className="flex items-start justify-between">
                       <div className="flex items-center gap-3">
-                        <div className={`w-10 h-10 rounded-full flex items-center justify-center ${colorClass}`}>
+                        <div className={`w-10 h-10 rounded-full flex items-center justify-center shrink-0 ${colorClass}`}>
                           {isPending ? (
                             <Clock className="w-5 h-5" />
                           ) : isRejected ? (
@@ -335,9 +335,9 @@ export function AssetDetailsView({ asset, onNavigate }: AssetDetailsViewProps) {
                           <div className="text-muted text-xs">{tx.date}</div>
                         </div>
                       </div>
-                      <div className={`font-semibold text-right ${textColor}`}>
-                        <span className="block">{prefix}{tx.change.toLocaleString(undefined, { maximumFractionDigits: 5 })}</span>
-                        <span className="block text-xs font-medium opacity-80">{details.symbol}</span>
+                      <div className={`font-semibold text-right shrink-0 ${textColor}`}>
+                        <div>{prefix}{tx.change.toLocaleString(undefined, { maximumFractionDigits: 5 })}</div>
+                        <div className="text-xs font-medium text-muted mt-0.5">{details.symbol}</div>
                       </div>
                     </div>
                     {/* Show rejection message inline */}
