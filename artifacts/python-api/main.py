@@ -3,6 +3,7 @@ import hashlib
 import logging
 import os
 import secrets
+import shutil
 import time
 from contextlib import asynccontextmanager
 from datetime import date, datetime
@@ -10,10 +11,14 @@ from pathlib import Path
 from typing import List, Optional
 
 import httpx
-from fastapi import Depends, FastAPI, HTTPException, Header, Request
+from fastapi import Depends, FastAPI, File, HTTPException, Header, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
+
+# ── Upload directory ──────────────────────────────────────────────────────────
+UPLOADS_DIR = Path(__file__).parent / "uploads" / "photos"
+UPLOADS_DIR.mkdir(parents=True, exist_ok=True)
 from sqlalchemy import func, text
 from sqlalchemy.orm import Session
 
@@ -245,7 +250,8 @@ def _migrate():
         "ALTER TABLE wallets ADD COLUMN IF NOT EXISTS withdrawal_charge_trx          FLOAT",
         # Withdrawal charge snapshotted at request time on pending_withdrawals
         "ALTER TABLE pending_withdrawals ADD COLUMN IF NOT EXISTS charge_amount FLOAT",
-        # Pending withdrawals table (created by SQLAlchemy, but just in case)
+        # User profile photo URL
+        "ALTER TABLE users ADD COLUMN IF NOT EXISTS profile_photo TEXT",
     ]
     for stmt in stmts:
         try:
@@ -465,6 +471,40 @@ def update_wallet(data: WalletUpdate, current_user: User = Depends(require_user)
 
 # ── Admin: User management ────────────────────────────────────────────────────
 
+@app.post("/api/profile/photo")
+async def upload_profile_photo(
+    file: UploadFile = File(...),
+    current_user: User = Depends(require_user),
+    db: Session = Depends(get_db),
+):
+    allowed = {"image/jpeg", "image/png", "image/webp", "image/gif"}
+    if file.content_type not in allowed:
+        raise HTTPException(status_code=400, detail="Only JPEG, PNG, WEBP or GIF images are supported")
+    ext = (file.filename or "photo").rsplit(".", 1)[-1].lower() if "." in (file.filename or "") else "jpg"
+    filename = f"user_{current_user.id}_{int(time.time())}.{ext}"
+    dest = UPLOADS_DIR / filename
+    with dest.open("wb") as f:
+        shutil.copyfileobj(file.file, f)
+    # Remove old photo file if present
+    if current_user.profile_photo:
+        old_name = current_user.profile_photo.rsplit("/", 1)[-1]
+        old_path = UPLOADS_DIR / old_name
+        if old_path.exists() and old_path.is_file():
+            old_path.unlink(missing_ok=True)
+    photo_url = f"/api/profile/photo/{filename}"
+    current_user.profile_photo = photo_url
+    db.commit()
+    return {"profile_photo": photo_url}
+
+
+@app.get("/api/profile/photo/{filename}")
+async def serve_profile_photo(filename: str):
+    path = UPLOADS_DIR / filename
+    if not path.exists() or not path.is_file():
+        raise HTTPException(status_code=404, detail="Photo not found")
+    return FileResponse(str(path))
+
+
 @app.get("/api/admin/users")
 def list_users(db: Session = Depends(get_db), _admin: str = Depends(require_admin)):
     users = db.query(User).order_by(User.id).all()
@@ -475,6 +515,7 @@ def list_users(db: Session = Depends(get_db), _admin: str = Depends(require_admi
             "id": u.id,
             "username": u.username,
             "role": u.role,
+            "profile_photo": u.profile_photo,
             "wallet": {
                 "id": wallet.id,
                 "user_id": wallet.user_id,

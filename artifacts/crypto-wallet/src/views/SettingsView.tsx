@@ -1,18 +1,44 @@
-import React, { useState } from 'react';
-import { ArrowLeft, LogOut, User, Shield, Info, KeyRound, Edit2, Eye, EyeOff, Check, X } from 'lucide-react';
+import React, { useRef, useState } from 'react';
+import { ArrowLeft, LogOut, User, Shield, Info, KeyRound, Edit2, Eye, EyeOff, Check, X, Camera } from 'lucide-react';
 import { TrantLogo } from '../components/TrantLogo';
 import { api } from '../api';
 import { toast } from 'sonner';
 
 interface SettingsViewProps {
   username: string;
+  profilePhoto?: string | null;
   onBack: () => void;
   onLogout: () => void;
   onUpdateUsername: (newUsername: string) => void;
+  onUpdateProfilePhoto: (url: string) => void;
 }
 
-export function SettingsView({ username, onBack, onLogout, onUpdateUsername }: SettingsViewProps) {
+export function SettingsView({ username, profilePhoto, onBack, onLogout, onUpdateUsername, onUpdateProfilePhoto }: SettingsViewProps) {
   const walletName = username ? `${username} Wallet 1` : 'My Wallet';
+  const photoInputRef = useRef<HTMLInputElement>(null);
+  const [uploadingPhoto, setUploadingPhoto] = useState(false);
+
+  const handlePhotoClick = () => photoInputRef.current?.click();
+
+  const handlePhotoChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (file.size > 5 * 1024 * 1024) {
+      toast.error('Image must be smaller than 5 MB');
+      return;
+    }
+    setUploadingPhoto(true);
+    try {
+      const res = await api.uploadProfilePhoto(file);
+      onUpdateProfilePhoto(res.profile_photo);
+      toast.success('Profile photo updated');
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : 'Failed to upload photo');
+    } finally {
+      setUploadingPhoto(false);
+      e.target.value = '';
+    }
+  };
 
   // Change username state
   const [showUsernameForm, setShowUsernameForm] = useState(false);
@@ -108,11 +134,38 @@ export function SettingsView({ username, onBack, onLogout, onUpdateUsername }: S
         <div className="font-semibold text-foreground w-full text-center">Settings</div>
       </div>
 
+      {/* Hidden file input */}
+      <input
+        ref={photoInputRef}
+        type="file"
+        accept="image/jpeg,image/png,image/webp,image/gif"
+        className="hidden"
+        onChange={handlePhotoChange}
+      />
+
       {/* Wallet identity card */}
       <div className="mx-6 mt-2 mb-6 bg-card border border-border rounded-2xl p-5 flex flex-col items-center gap-3">
-        <div className="w-14 h-14 bg-primary/10 rounded-full flex items-center justify-center">
-          <TrantLogo size={32} />
-        </div>
+        <button
+          onClick={handlePhotoClick}
+          disabled={uploadingPhoto}
+          className="relative group focus:outline-none"
+          aria-label="Change profile photo"
+        >
+          <div className="w-16 h-16 rounded-full overflow-hidden bg-primary/10 flex items-center justify-center ring-2 ring-border group-hover:ring-primary transition-all">
+            {profilePhoto ? (
+              <img src={profilePhoto} alt="Profile" className="w-full h-full object-cover" />
+            ) : (
+              <TrantLogo size={34} />
+            )}
+          </div>
+          <div className="absolute -bottom-0.5 -right-0.5 w-6 h-6 bg-primary rounded-full flex items-center justify-center shadow-md">
+            {uploadingPhoto ? (
+              <div className="w-3 h-3 border-2 border-background border-t-transparent rounded-full animate-spin" />
+            ) : (
+              <Camera className="w-3 h-3 text-background" />
+            )}
+          </div>
+        </button>
         <div className="text-center">
           <div className="text-lg font-bold text-foreground tracking-wide">{walletName}</div>
           <div className="text-xs text-muted mt-0.5 tracking-widest uppercase">TRANT Wallet</div>

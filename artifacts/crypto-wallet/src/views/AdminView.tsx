@@ -489,8 +489,10 @@ function UserRow({ user, prices, onSaved }: {
           onClick={() => !isEnvAdmin && setOpen(v => !v)}
           className={`w-full flex items-center gap-3 px-4 py-4 text-left transition-colors ${!isEnvAdmin ? 'hover:bg-background/40 active:scale-[0.99]' : 'cursor-default'}`}
         >
-          <div className="w-9 h-9 rounded-full bg-primary/15 flex items-center justify-center shrink-0">
-            {isEnvAdmin ? (
+          <div className="w-9 h-9 rounded-full bg-primary/15 flex items-center justify-center shrink-0 overflow-hidden">
+            {user.profile_photo ? (
+              <img src={user.profile_photo} alt={user.username} className="w-full h-full object-cover" />
+            ) : isEnvAdmin ? (
               <UserCircle className="w-5 h-5 text-primary" />
             ) : (
               <span className="text-xs font-bold text-primary">#{user.id}</span>

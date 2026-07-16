@@ -192,6 +192,7 @@ class UserWithWallet(BaseModel):
     id: int
     username: str
     role: str
+    profile_photo: Optional[str] = None
     wallet: Optional[WalletResponse] = None
 
     model_config = {"from_attributes": True}

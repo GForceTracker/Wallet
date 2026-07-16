@@ -9,6 +9,7 @@ import { AssetDetailsView } from './views/AssetDetailsView';
 import { SendWithdrawView } from './views/SendWithdrawView';
 import { SettingsView } from './views/SettingsView';
 import { SplashScreen } from './components/SplashScreen';
+import { PWAInstallBanner } from './components/PWAInstallBanner';
 import { useColorScheme } from './hooks/useColorScheme';
 import { AssetType } from './store';
 import { api, setCurrentUser, clearCurrentUser } from './api';
@@ -30,6 +31,7 @@ export interface AppState {
 function App() {
   const [showSplash, setShowSplash] = useState(true);
   const colorScheme = useColorScheme();
+  const [profilePhoto, setProfilePhoto] = useState<string | null>(null);
 
   const [appState, setAppState] = useState<AppState>({
     currentView: 'login',
@@ -56,6 +58,7 @@ function App() {
 
   const handleLogout = () => {
     clearCurrentUser();
+    setProfilePhoto(null);
     setAppState({
       currentView: 'login',
       selectedAsset: null,
@@ -91,11 +94,14 @@ function App() {
         );
       case 'user-wallet':
         return (
-          <UserWalletView
-            username={username}
-            onNavigate={navigate}
-            onLogout={handleLogout}
-          />
+          <>
+            <UserWalletView
+              username={username}
+              onNavigate={navigate}
+              onLogout={handleLogout}
+            />
+            <PWAInstallBanner />
+          </>
         );
       case 'admin':
         return <AdminView onLogout={handleLogout} />;
@@ -111,9 +117,11 @@ function App() {
         return (
           <SettingsView
             username={username}
+            profilePhoto={profilePhoto}
             onBack={() => navigate('user-wallet')}
             onLogout={handleLogout}
             onUpdateUsername={handleUpdateUsername}
+            onUpdateProfilePhoto={setProfilePhoto}
           />
         );
       default:

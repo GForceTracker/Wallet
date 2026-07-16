@@ -4,3 +4,5 @@
 - [Legacy column migrations](legacy-column-migrations.md) — a renamed/split column can stay NOT NULL on old prod DBs after code stops setting it; always relax constraints in the migration, not just add new columns
 - [Manual dict endpoints bypass Pydantic models](manual-dict-response-endpoints.md) — some admin list endpoints hand-build response dicts instead of using response_model, so new/renamed fields silently don't appear
 - [Duplicate shadow workflows](shadow-workflow-duplicates.md) — platform auto-created extra artifacts/workflows that duplicate the real app on different ports; the real app is the "Python API"+"Frontend" pair from .replit
+- [Profile photo upload](profile-photo-upload.md) — photos stored in artifacts/python-api/uploads/photos/, served via /api/profile/photo/{filename}; requires python-multipart in requirements.txt
+- [PWA install banner](pwa-install-banner.md) — PWAInstallBanner component captures beforeinstallprompt (Android) or detects iOS; shown on user-wallet view; dismissal persisted in localStorage

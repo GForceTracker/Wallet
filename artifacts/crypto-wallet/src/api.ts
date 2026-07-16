@@ -132,6 +132,7 @@ export interface UserWithWallet {
   id: number;
   username: string;
   role: string;
+  profile_photo?: string | null;
   wallet: WalletData | null;
 }
 
@@ -275,6 +276,20 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ message }),
     }),
+
+  // Profile photo
+  uploadProfilePhoto: async (file: File): Promise<{ profile_photo: string }> => {
+    const form = new FormData();
+    form.append("file", file);
+    const headers: Record<string, string> = {};
+    if (_currentUsername) headers["X-Username"] = _currentUsername;
+    const res = await fetch(`${BASE}/profile/photo`, { method: "POST", body: form, headers });
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({ detail: res.statusText }));
+      throw new ApiError(body.detail ?? "Upload failed", res.status);
+    }
+    return res.json();
+  },
 
   // Notifications
   getNotifications: () => req<NotificationData[]>("/notifications"),
