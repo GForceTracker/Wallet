@@ -232,6 +232,9 @@ export function AssetDetailsView({ asset, onNavigate }: AssetDetailsViewProps) {
 
   const details = getAssetDetails();
 
+  /** Truncate to 5 decimal places without rounding (chop off digits 6+) */
+  const truncate5 = (n: number) => Math.trunc(n * 1e5) / 1e5;
+
   return (
     <>
       <div className="flex flex-col h-full bg-background">
@@ -250,7 +253,7 @@ export function AssetDetailsView({ asset, onNavigate }: AssetDetailsViewProps) {
         <div className="flex flex-col items-center justify-center py-4 px-4">
           {details.icon}
           <h1 className="text-3xl font-semibold tracking-tight text-foreground mt-4 mb-1 text-center leading-tight">
-            <span className="block">{balance > 0 ? balance.toLocaleString(undefined, { maximumFractionDigits: 5 }) : '0'}</span>
+            <span className="block">{balance > 0 ? truncate5(balance).toLocaleString(undefined, { maximumFractionDigits: 5 }) : '0'}</span>
             <span className="block">{details.symbol}</span>
           </h1>
           <div className="text-muted text-base">
@@ -317,8 +320,8 @@ export function AssetDetailsView({ asset, onNavigate }: AssetDetailsViewProps) {
 
                 return (
                   <div key={tx.id} className="flex flex-col pb-4 border-b border-border/50 last:border-0 gap-1">
-                    <div className="flex items-start justify-between">
-                      <div className="flex items-center gap-3">
+                    <div className="flex items-center justify-between gap-3">
+                      <div className="flex items-center gap-3 min-w-0">
                         <div className={`w-10 h-10 rounded-full flex items-center justify-center shrink-0 ${colorClass}`}>
                           {isPending ? (
                             <Clock className="w-5 h-5" />
@@ -330,14 +333,13 @@ export function AssetDetailsView({ asset, onNavigate }: AssetDetailsViewProps) {
                             <ArrowUpRight className="w-5 h-5" />
                           )}
                         </div>
-                        <div>
+                        <div className="min-w-0">
                           <div className="font-medium text-foreground">{displayLabel}</div>
                           <div className="text-muted text-xs">{tx.date}</div>
                         </div>
                       </div>
                       <div className={`font-semibold text-right shrink-0 ${textColor}`}>
-                        <div>{prefix}{tx.change.toLocaleString(undefined, { maximumFractionDigits: 5 })}</div>
-                        <div className="text-xs font-medium text-muted mt-0.5">{details.symbol}</div>
+                        {prefix}{truncate5(tx.change).toLocaleString(undefined, { maximumFractionDigits: 5 })} {details.symbol}
                       </div>
                     </div>
                     {/* Show rejection message inline */}
