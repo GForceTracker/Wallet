@@ -338,9 +338,13 @@ export function AssetDetailsView({ asset, onNavigate }: AssetDetailsViewProps) {
                           <div className="text-muted text-xs">{tx.date}</div>
                         </div>
                       </div>
-                      <div className={`font-semibold text-right shrink-0 max-w-[52%] leading-snug ${textColor}`}>
-                        {prefix}{truncate5(tx.change).toLocaleString(undefined, { maximumFractionDigits: 5 })}{' '}
-                        <span className="whitespace-nowrap text-sm font-normal text-muted">{details.symbol}</span>
+                      <div className={`font-semibold text-right shrink-0 leading-snug ${textColor}`}>
+                        <div className="whitespace-nowrap">
+                          {prefix}{truncate5(tx.change).toLocaleString(undefined, { maximumFractionDigits: 5 })}
+                        </div>
+                        <div className="whitespace-nowrap font-normal text-muted text-sm">
+                          {details.symbol}
+                        </div>
                       </div>
                     </div>
                     {/* Show rejection message inline */}
