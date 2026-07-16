@@ -254,7 +254,7 @@ export function AssetDetailsView({ asset, onNavigate }: AssetDetailsViewProps) {
           {details.icon}
           <h1 className="text-3xl font-semibold tracking-tight text-foreground mt-4 mb-1 text-center leading-tight">
             <span className="block">{balance > 0 ? truncate5(balance).toLocaleString(undefined, { maximumFractionDigits: 5 }) : '0'}</span>
-            <span className="block">{details.symbol}</span>
+            <span className="block text-lg font-medium">{details.symbol}</span>
           </h1>
           <div className="text-muted text-base">
             ${fiatVal.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
