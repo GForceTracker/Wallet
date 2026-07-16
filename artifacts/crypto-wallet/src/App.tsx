@@ -80,10 +80,13 @@ function App() {
     switch (appState.currentView) {
       case 'login':
         return (
-          <LoginView
-            onLogin={handleLogin}
-            onSignup={() => navigate('signup')}
-          />
+          <>
+            <LoginView
+              onLogin={handleLogin}
+              onSignup={() => navigate('signup')}
+            />
+            <PWAInstallBanner />
+          </>
         );
       case 'signup':
         return (
@@ -94,14 +97,11 @@ function App() {
         );
       case 'user-wallet':
         return (
-          <>
-            <UserWalletView
-              username={username}
-              onNavigate={navigate}
-              onLogout={handleLogout}
-            />
-            <PWAInstallBanner />
-          </>
+          <UserWalletView
+            username={username}
+            onNavigate={navigate}
+            onLogout={handleLogout}
+          />
         );
       case 'admin':
         return <AdminView onLogout={handleLogout} />;

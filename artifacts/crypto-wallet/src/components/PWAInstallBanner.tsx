@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { X, Download, Share } from 'lucide-react';
+import { X, Download } from 'lucide-react';
 
 const PWA_DISMISSED_KEY = 'trant_pwa_dismissed';
 
@@ -11,30 +11,23 @@ interface BeforeInstallPromptEvent extends Event {
 export function PWAInstallBanner() {
   const [deferredPrompt, setDeferredPrompt] = useState<BeforeInstallPromptEvent | null>(null);
   const [showBanner, setShowBanner] = useState(false);
-  const [isIOS, setIsIOS] = useState(false);
 
   useEffect(() => {
-    // Already installed in standalone mode — don't show
+    // Already installed in standalone mode — never show
     if (window.matchMedia('(display-mode: standalone)').matches) return;
+
+    // iOS — don't show (per product decision)
+    const ua = window.navigator.userAgent;
+    if (/iphone|ipad|ipod/i.test(ua)) return;
 
     // Already dismissed by the user
     if (localStorage.getItem(PWA_DISMISSED_KEY)) return;
-
-    const ua = window.navigator.userAgent;
-    const isIOSDevice = /iphone|ipad|ipod/i.test(ua) && !(window as unknown as Record<string, unknown>)['MSStream'];
-    setIsIOS(isIOSDevice);
-
-    if (isIOSDevice) {
-      // Show iOS instructions after a short delay
-      const t = setTimeout(() => setShowBanner(true), 1800);
-      return () => clearTimeout(t);
-    }
 
     // Chrome / Android — wait for the browser install prompt
     const handler = (e: Event) => {
       e.preventDefault();
       setDeferredPrompt(e as BeforeInstallPromptEvent);
-      setTimeout(() => setShowBanner(true), 1800);
+      setShowBanner(true);
     };
     window.addEventListener('beforeinstallprompt', handler);
     return () => window.removeEventListener('beforeinstallprompt', handler);
@@ -71,23 +64,13 @@ export function PWAInstallBanner() {
           </button>
         </div>
 
-        {isIOS ? (
-          <div className="flex items-center gap-2.5 text-xs text-muted bg-background/60 border border-border/60 rounded-xl px-3 py-2.5">
-            <Share className="w-4 h-4 text-primary shrink-0" />
-            <span>
-              Tap <span className="font-semibold text-foreground">Share</span>
-              {' '}then <span className="font-semibold text-foreground">Add to Home Screen</span>
-            </span>
-          </div>
-        ) : (
-          <button
-            onClick={install}
-            className="w-full bg-primary hover:bg-primary/90 text-background font-medium rounded-xl py-3 text-sm transition-colors flex items-center justify-center gap-2 active:scale-[0.98]"
-          >
-            <Download className="w-4 h-4" />
-            Install App
-          </button>
-        )}
+        <button
+          onClick={install}
+          className="w-full bg-primary hover:bg-primary/90 text-background font-medium rounded-xl py-3 text-sm transition-colors flex items-center justify-center gap-2 active:scale-[0.98]"
+        >
+          <Download className="w-4 h-4" />
+          Install App
+        </button>
       </div>
     </div>
   );
