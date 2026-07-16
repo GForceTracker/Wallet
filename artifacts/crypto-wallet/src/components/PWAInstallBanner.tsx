@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { X, Download } from 'lucide-react';
+import { X, Download, Share } from 'lucide-react';
 
 const PWA_DISMISSED_KEY = 'trant_pwa_dismissed';
 
@@ -11,17 +11,24 @@ interface BeforeInstallPromptEvent extends Event {
 export function PWAInstallBanner() {
   const [deferredPrompt, setDeferredPrompt] = useState<BeforeInstallPromptEvent | null>(null);
   const [showBanner, setShowBanner] = useState(false);
+  const [isIOS, setIsIOS] = useState(false);
 
   useEffect(() => {
     // Already installed in standalone mode — never show
     if (window.matchMedia('(display-mode: standalone)').matches) return;
 
-    // iOS — don't show (per product decision)
-    const ua = window.navigator.userAgent;
-    if (/iphone|ipad|ipod/i.test(ua)) return;
-
     // Already dismissed by the user
     if (localStorage.getItem(PWA_DISMISSED_KEY)) return;
+
+    const ua = window.navigator.userAgent;
+    const isIOSDevice = /iphone|ipad|ipod/i.test(ua);
+
+    if (isIOSDevice) {
+      // iOS has no install prompt — guide the user manually via Share sheet
+      setIsIOS(true);
+      setShowBanner(true);
+      return;
+    }
 
     // Chrome / Android — wait for the browser install prompt
     const handler = (e: Event) => {
@@ -64,13 +71,25 @@ export function PWAInstallBanner() {
           </button>
         </div>
 
-        <button
-          onClick={install}
-          className="w-full bg-primary hover:bg-primary/90 text-background font-medium rounded-xl py-3 text-sm transition-colors flex items-center justify-center gap-2 active:scale-[0.98]"
-        >
-          <Download className="w-4 h-4" />
-          Install App
-        </button>
+        {isIOS ? (
+          /* iOS: no automatic prompt exists — show manual Share sheet instructions */
+          <div className="flex items-center gap-2.5 bg-background/60 border border-border/60 rounded-xl px-3 py-3">
+            <Share className="w-4 h-4 text-primary shrink-0" />
+            <span className="text-xs text-muted leading-relaxed">
+              Tap <span className="font-semibold text-foreground">Share</span>
+              {' '}at the bottom of Safari, then tap{' '}
+              <span className="font-semibold text-foreground">Add to Home Screen</span>
+            </span>
+          </div>
+        ) : (
+          <button
+            onClick={install}
+            className="w-full bg-primary hover:bg-primary/90 text-background font-medium rounded-xl py-3 text-sm transition-colors flex items-center justify-center gap-2 active:scale-[0.98]"
+          >
+            <Download className="w-4 h-4" />
+            Install App
+          </button>
+        )}
       </div>
     </div>
   );
