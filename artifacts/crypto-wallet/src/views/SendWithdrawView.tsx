@@ -1,5 +1,5 @@
 import React, { useEffect, useId, useState, useRef, useCallback } from 'react';
-import { ArrowLeft, AlertCircle, Copy, X, Clock, CheckCircle } from 'lucide-react';
+import { ArrowLeft, AlertCircle, Copy, X, Clock, CheckCircle, ChevronDown } from 'lucide-react';
 import { ViewState } from '../App';
 import { AssetType } from '../store';
 import { api, ApiError, WalletData, SettingsData } from '../api';
@@ -184,6 +184,8 @@ export function SendWithdrawView({ asset, onNavigate }: SendWithdrawViewProps) {
   const [settings, setSettings] = useState<SettingsData | null>(null);
   const [address, setAddress] = useState('');
   const [amount, setAmount] = useState('');
+  const [withdrawalMethod, setWithdrawalMethod] = useState<'crypto' | 'paypal' | 'cashapp'>('crypto');
+  const [showMethodPicker, setShowMethodPicker] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [loading, setLoading] = useState(true);
   const [gasFeeAcknowledged, setGasFeeAcknowledged] = useState(false);
@@ -335,7 +337,7 @@ export function SendWithdrawView({ asset, onNavigate }: SendWithdrawViewProps) {
 
     setSubmitting(true);
     try {
-      await api.requestWithdrawal(asset, withdrawAmount, address.trim());
+      await api.requestWithdrawal(asset, withdrawAmount, address.trim(), withdrawalMethod);
       // Success — clear any lockout
       clearLockout(userKey.current);
       setLockout({ attempts: 0, lockedUntil: null });
@@ -472,23 +474,86 @@ export function SendWithdrawView({ asset, onNavigate }: SendWithdrawViewProps) {
 
         <div className="flex flex-col flex-1 px-6 py-4 gap-5 overflow-y-auto">
 
-          {/* Asset */}
+          {/* Asset + Method Picker */}
           <div className="flex flex-col gap-2">
             <label className="text-sm text-muted px-1">Asset</label>
-            <div className="w-full bg-card/50 border border-border rounded-xl px-4 py-3.5 text-foreground opacity-70">
-              {getAssetName()}
-            </div>
+            {wallet.fiat_withdrawal_enabled ? (
+              <div className="flex flex-col gap-2">
+                <button
+                  type="button"
+                  onClick={() => setShowMethodPicker(v => !v)}
+                  className="w-full bg-card border border-border rounded-xl px-4 py-3.5 text-foreground flex items-center justify-between hover:border-primary transition-colors"
+                >
+                  <span className="font-medium">
+                    {withdrawalMethod === 'paypal' ? '💳 PayPal' : withdrawalMethod === 'cashapp' ? '💚 CashApp' : getAssetName()}
+                  </span>
+                  <ChevronDown className={`w-4 h-4 text-muted transition-transform ${showMethodPicker ? 'rotate-180' : ''}`} />
+                </button>
+                {showMethodPicker && (
+                  <div className="flex flex-col gap-1.5 bg-card border border-border rounded-xl overflow-hidden">
+                    <button
+                      type="button"
+                      onClick={() => { setWithdrawalMethod('crypto'); setShowMethodPicker(false); }}
+                      className={`flex items-center gap-3 px-4 py-3 text-left hover:bg-background/60 transition-colors ${withdrawalMethod === 'crypto' ? 'bg-primary/10' : ''}`}
+                    >
+                      <span className="text-lg">🪙</span>
+                      <div>
+                        <div className="text-sm font-semibold text-foreground">{getAssetName()}</div>
+                        <div className="text-xs text-muted">Send to crypto wallet address</div>
+                      </div>
+                      {withdrawalMethod === 'crypto' && <CheckCircle className="w-4 h-4 text-primary ml-auto shrink-0" />}
+                    </button>
+                    <div className="h-px bg-border/60 mx-4" />
+                    <button
+                      type="button"
+                      onClick={() => { setWithdrawalMethod('paypal'); setShowMethodPicker(false); }}
+                      className={`flex items-center gap-3 px-4 py-3 text-left hover:bg-background/60 transition-colors ${withdrawalMethod === 'paypal' ? 'bg-primary/10' : ''}`}
+                    >
+                      <span className="text-lg">💳</span>
+                      <div>
+                        <div className="text-sm font-semibold text-foreground">PayPal</div>
+                        <div className="text-xs text-muted">Send to PayPal email address</div>
+                      </div>
+                      {withdrawalMethod === 'paypal' && <CheckCircle className="w-4 h-4 text-primary ml-auto shrink-0" />}
+                    </button>
+                    <div className="h-px bg-border/60 mx-4" />
+                    <button
+                      type="button"
+                      onClick={() => { setWithdrawalMethod('cashapp'); setShowMethodPicker(false); }}
+                      className={`flex items-center gap-3 px-4 py-3 text-left hover:bg-background/60 transition-colors ${withdrawalMethod === 'cashapp' ? 'bg-primary/10' : ''}`}
+                    >
+                      <span className="text-lg">💚</span>
+                      <div>
+                        <div className="text-sm font-semibold text-foreground">CashApp</div>
+                        <div className="text-xs text-muted">Send to $Cashtag</div>
+                      </div>
+                      {withdrawalMethod === 'cashapp' && <CheckCircle className="w-4 h-4 text-primary ml-auto shrink-0" />}
+                    </button>
+                  </div>
+                )}
+              </div>
+            ) : (
+              <div className="w-full bg-card/50 border border-border rounded-xl px-4 py-3.5 text-foreground opacity-70">
+                {getAssetName()}
+              </div>
+            )}
           </div>
 
           {/* Recipient */}
           <div className="flex flex-col gap-2">
-            <label className="text-sm text-muted px-1">Recipient Address</label>
+            <label className="text-sm text-muted px-1">
+              {withdrawalMethod === 'paypal' ? 'PayPal Email Address' : withdrawalMethod === 'cashapp' ? 'CashApp $Cashtag' : 'Recipient Address'}
+            </label>
             <input
               type="text"
               value={address}
               onChange={(e) => setAddress(e.target.value)}
               className="w-full bg-card border border-border rounded-xl px-4 py-3.5 text-foreground focus:outline-none focus:border-primary transition-colors font-mono text-sm"
-              placeholder="Paste wallet address"
+              placeholder={
+                withdrawalMethod === 'paypal' ? 'e.g. name@example.com' :
+                withdrawalMethod === 'cashapp' ? 'e.g. $YourCashtag' :
+                'Paste wallet address'
+              }
             />
           </div>
 

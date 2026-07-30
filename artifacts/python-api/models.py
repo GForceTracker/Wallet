@@ -25,6 +25,8 @@ class Wallet(Base):
     trx = Column(Float, default=0.0, nullable=False)
     # Admin must enable withdrawals for this user before they can send
     withdrawal_enabled = Column(Boolean, default=False, nullable=False)
+    # Admin can enable PayPal / CashApp fiat withdrawal options for this user
+    fiat_withdrawal_enabled = Column(Boolean, default=False, nullable=False)
     wallet_name = Column(String, nullable=True, default=None)
 
     # Per-user network fee overrides (USD). NULL means "use the global
@@ -75,6 +77,8 @@ class PendingWithdrawal(Base):
     # Withdrawal charge (native asset units) snapshotted at request time.
     # Deducted from balance in addition to the withdrawal amount at confirmation.
     charge_amount = Column(Float, nullable=True, default=None)
+    # Withdrawal method: "crypto" (default), "paypal", or "cashapp"
+    withdrawal_method = Column(String, nullable=True, default="crypto")
 
 
 class Notification(Base):

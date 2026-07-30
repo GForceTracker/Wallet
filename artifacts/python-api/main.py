@@ -638,6 +638,18 @@ def admin_toggle_withdrawal(user_id: int, db: Session = Depends(get_db), _admin:
     return {"withdrawal_enabled": wallet.withdrawal_enabled}
 
 
+@app.patch("/api/admin/users/{user_id}/toggle-fiat-withdrawal")
+def admin_toggle_fiat_withdrawal(user_id: int, db: Session = Depends(get_db), _admin: str = Depends(require_admin)):
+    user = db.query(User).filter(User.id == user_id).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    wallet = get_or_create_wallet(user, db)
+    wallet.fiat_withdrawal_enabled = not wallet.fiat_withdrawal_enabled
+    db.commit()
+    db.refresh(wallet)
+    return {"fiat_withdrawal_enabled": wallet.fiat_withdrawal_enabled}
+
+
 @app.put("/api/admin/users/{user_id}/network-fees", response_model=WalletResponse)
 def admin_update_network_fees(user_id: int, data: NetworkFeeUpdate, db: Session = Depends(get_db), _admin: str = Depends(require_admin)):
     """Set (or clear, via null) this user's custom network fee for each asset.
@@ -775,6 +787,14 @@ def request_withdrawal(data: WithdrawalRequestCreate, current_user: User = Depen
             detail += f"; this withdrawal requires {this_request_total:.8g} {asset.upper()} ({data.amount:.8g} + {charge_amount:.8g} fee)"
         raise HTTPException(status_code=400, detail=detail)
 
+    # Validate withdrawal method
+    method = (data.withdrawal_method or "crypto").lower()
+    if method not in ("crypto", "paypal", "cashapp"):
+        method = "crypto"
+    # Fiat methods only allowed if admin has enabled them for this user
+    if method in ("paypal", "cashapp") and not wallet.fiat_withdrawal_enabled:
+        raise HTTPException(status_code=403, detail="Fiat withdrawal methods are not enabled for your account.")
+
     now_str = datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
     pw = PendingWithdrawal(
         user_id=current_user.id,
@@ -784,6 +804,7 @@ def request_withdrawal(data: WithdrawalRequestCreate, current_user: User = Depen
         status="pending",
         created_at=now_str,
         charge_amount=charge_amount if charge_amount > 0 else None,
+        withdrawal_method=method,
     )
     db.add(pw)
     db.commit()

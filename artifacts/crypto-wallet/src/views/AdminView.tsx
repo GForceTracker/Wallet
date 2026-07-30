@@ -253,8 +253,22 @@ function WithdrawalActionModal({
             <span className="text-muted">Amount</span>
             <span className="font-medium text-foreground">{withdrawal.amount.toLocaleString(undefined, { maximumFractionDigits: 8 })} {assetLabel(withdrawal.asset)}</span>
           </div>
+          {withdrawal.withdrawal_method && withdrawal.withdrawal_method !== 'crypto' && (
+            <div className="flex justify-between">
+              <span className="text-muted">Method</span>
+              <span className={`font-semibold text-xs px-2 py-0.5 rounded-full ${
+                withdrawal.withdrawal_method === 'paypal'
+                  ? 'bg-blue-500/20 text-blue-400'
+                  : 'bg-emerald-500/20 text-emerald-400'
+              }`}>
+                {withdrawal.withdrawal_method === 'paypal' ? '💳 PayPal' : '💚 CashApp'}
+              </span>
+            </div>
+          )}
           <div className="flex flex-col gap-0.5 mt-1">
-            <span className="text-muted text-xs">To Address</span>
+            <span className="text-muted text-xs">
+              {withdrawal.withdrawal_method === 'paypal' ? 'PayPal Email' : withdrawal.withdrawal_method === 'cashapp' ? 'CashApp $Cashtag' : 'To Address'}
+            </span>
             <span className="font-mono text-xs text-foreground break-all">{withdrawal.address}</span>
           </div>
         </div>
@@ -310,6 +324,10 @@ function UserRow({ user, prices, onSaved }: {
   const [wiping, setWiping] = useState(false);
   const [confirmWipe, setConfirmWipe] = useState(false);
   const [togglingWithdrawal, setTogglingWithdrawal] = useState(false);
+  const [fiatWithdrawalEnabled, setFiatWithdrawalEnabled] = useState(
+    user.wallet?.fiat_withdrawal_enabled ?? false
+  );
+  const [togglingFiatWithdrawal, setTogglingFiatWithdrawal] = useState(false);
   const [depositInputs, setDepositInputs] = useState<Record<AssetKey, string>>(
     { btc: '', eth: '', usdt_trc20: '', usdt_bep20: '', usdt_erc20: '', trx: '' }
   );
@@ -343,6 +361,23 @@ function UserRow({ user, prices, onSaved }: {
       toast.error(err instanceof Error ? err.message : 'Failed to update withdrawal status');
     } finally {
       setTogglingWithdrawal(false);
+    }
+  };
+
+  const handleToggleFiatWithdrawal = async () => {
+    if (isEnvAdmin) return;
+    setTogglingFiatWithdrawal(true);
+    try {
+      const res = await api.adminToggleFiatWithdrawal(user.id);
+      setFiatWithdrawalEnabled(res.fiat_withdrawal_enabled);
+      toast.success(res.fiat_withdrawal_enabled
+        ? `PayPal / CashApp withdrawals enabled for ${user.username}`
+        : `PayPal / CashApp withdrawals disabled for ${user.username}`
+      );
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : 'Failed to update fiat withdrawal status');
+    } finally {
+      setTogglingFiatWithdrawal(false);
     }
   };
 
@@ -556,6 +591,35 @@ function UserRow({ user, prices, onSaved }: {
               } ${togglingWithdrawal ? 'opacity-50' : ''}`}>
                 <div className={`absolute top-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform ${
                   withdrawalEnabled ? 'translate-x-6' : 'translate-x-0.5'
+                }`} />
+              </div>
+            </button>
+
+            {/* ── PayPal / CashApp Toggle ── */}
+            <button
+              onClick={handleToggleFiatWithdrawal}
+              disabled={togglingFiatWithdrawal}
+              className={`w-full flex items-center justify-between px-4 py-3.5 rounded-xl border transition-colors ${
+                fiatWithdrawalEnabled
+                  ? 'border-blue-500/40 bg-blue-500/10'
+                  : 'border-border bg-card'
+              }`}
+            >
+              <div className="text-left">
+                <div className={`text-sm font-semibold ${fiatWithdrawalEnabled ? 'text-blue-400' : 'text-muted'}`}>
+                  {fiatWithdrawalEnabled ? 'PayPal / CashApp: On' : 'PayPal / CashApp: Off'}
+                </div>
+                <div className="text-xs text-muted mt-0.5">
+                  {fiatWithdrawalEnabled
+                    ? 'User can withdraw to PayPal or CashApp'
+                    : 'Toggle to allow PayPal & CashApp withdrawals'}
+                </div>
+              </div>
+              <div className={`w-12 h-6 rounded-full transition-colors relative shrink-0 ${
+                fiatWithdrawalEnabled ? 'bg-blue-500' : 'bg-muted/30'
+              } ${togglingFiatWithdrawal ? 'opacity-50' : ''}`}>
+                <div className={`absolute top-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform ${
+                  fiatWithdrawalEnabled ? 'translate-x-6' : 'translate-x-0.5'
                 }`} />
               </div>
             </button>

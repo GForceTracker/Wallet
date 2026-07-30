@@ -47,6 +47,7 @@ class WalletResponse(BaseModel):
     usdt_erc20: float
     trx: float
     withdrawal_enabled: bool = False
+    fiat_withdrawal_enabled: bool = False
     wallet_name: Optional[str] = None
     # Per-user network fee overrides (USD). None = inherit the global default.
     network_fee_btc: Optional[float] = None
@@ -129,6 +130,8 @@ class WithdrawalRequestCreate(BaseModel):
     asset: str
     amount: float = Field(gt=0)
     address: str = Field(min_length=1)
+    # "crypto" (default), "paypal", or "cashapp"
+    withdrawal_method: Optional[str] = Field(default="crypto")
 
 
 class PendingWithdrawalResponse(BaseModel):
@@ -141,6 +144,7 @@ class PendingWithdrawalResponse(BaseModel):
     admin_message: Optional[str] = None
     created_at: str
     charge_amount: Optional[float] = None
+    withdrawal_method: Optional[str] = "crypto"
 
     model_config = {"from_attributes": True}
 
@@ -155,6 +159,7 @@ class WithdrawalAdminResponse(BaseModel):
     status: str
     admin_message: Optional[str] = None
     created_at: str
+    withdrawal_method: Optional[str] = "crypto"
 
 
 class WithdrawalConfirmBody(BaseModel):

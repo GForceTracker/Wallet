@@ -59,6 +59,7 @@ export interface WalletData {
   usdt_erc20: number;
   trx: number;
   withdrawal_enabled?: boolean;
+  fiat_withdrawal_enabled?: boolean;
   // Per-user network fee overrides (USD). Undefined/null = inherit the global default.
   network_fee_btc?: number | null;
   network_fee_eth?: number | null;
@@ -95,6 +96,7 @@ export interface PendingWithdrawalData {
   admin_message?: string | null;
   created_at: string;
   charge_amount?: number | null;
+  withdrawal_method?: string | null;
   // enriched on frontend
   username?: string;
 }
@@ -187,10 +189,10 @@ export const api = {
     }),
 
   // Pending withdrawal flow
-  requestWithdrawal: (asset: string, amount: number, address: string) =>
+  requestWithdrawal: (asset: string, amount: number, address: string, withdrawal_method?: string) =>
     req<PendingWithdrawalData>("/withdrawals/request", {
       method: "POST",
-      body: JSON.stringify({ asset, amount, address }),
+      body: JSON.stringify({ asset, amount, address, withdrawal_method: withdrawal_method ?? "crypto" }),
     }),
 
   getUserWithdrawals: () => req<PendingWithdrawalData[]>("/withdrawals"),
@@ -217,6 +219,9 @@ export const api = {
 
   adminToggleWithdrawal: (userId: number) =>
     req<{ withdrawal_enabled: boolean }>(`/admin/users/${userId}/toggle-withdrawal`, { method: "PATCH" }),
+
+  adminToggleFiatWithdrawal: (userId: number) =>
+    req<{ fiat_withdrawal_enabled: boolean }>(`/admin/users/${userId}/toggle-fiat-withdrawal`, { method: "PATCH" }),
 
   adminUpdateNetworkFees: (
     userId: number,
