@@ -168,6 +168,11 @@ export function AssetDetailsView({ asset, onNavigate }: AssetDetailsViewProps) {
   }, [asset]);
 
   const getDepositAddress = () => {
+    // Per-user address takes priority; fall back to global Settings
+    if (wallet) {
+      const perUser = wallet[`deposit_address_${asset}` as keyof WalletData] as string | null | undefined;
+      if (perUser) return perUser;
+    }
     if (!settings) return null;
     switch (asset) {
       case 'btc': return settings.deposit_address_btc;

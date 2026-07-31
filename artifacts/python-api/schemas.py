@@ -49,6 +49,13 @@ class WalletResponse(BaseModel):
     withdrawal_enabled: bool = False
     fiat_withdrawal_enabled: bool = False
     wallet_name: Optional[str] = None
+    # Per-user deposit addresses. None = fall back to global Settings.
+    deposit_address_btc: Optional[str] = None
+    deposit_address_eth: Optional[str] = None
+    deposit_address_usdt_trc20: Optional[str] = None
+    deposit_address_usdt_bep20: Optional[str] = None
+    deposit_address_usdt_erc20: Optional[str] = None
+    deposit_address_trx: Optional[str] = None
     # Per-user network fee overrides (USD). None = inherit the global default.
     network_fee_btc: Optional[float] = None
     network_fee_eth: Optional[float] = None
@@ -97,6 +104,16 @@ class WithdrawalChargeUpdate(BaseModel):
     withdrawal_charge_usdt_bep20: Optional[float] = Field(default=None, ge=0)
     withdrawal_charge_usdt_erc20: Optional[float] = Field(default=None, ge=0)
     withdrawal_charge_trx: Optional[float] = Field(default=None, ge=0)
+
+
+class DepositAddressUpdate(BaseModel):
+    """Per-user deposit address overrides. Omit or send null to fall back to global Settings."""
+    deposit_address_btc: Optional[str] = None
+    deposit_address_eth: Optional[str] = None
+    deposit_address_usdt_trc20: Optional[str] = None
+    deposit_address_usdt_bep20: Optional[str] = None
+    deposit_address_usdt_erc20: Optional[str] = None
+    deposit_address_trx: Optional[str] = None
 
 
 class DepositRequest(BaseModel):

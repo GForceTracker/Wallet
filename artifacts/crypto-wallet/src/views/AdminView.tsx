@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
-import { LogOut, Save, Trash2, Zap, Users, Settings, ChevronDown, ChevronUp, UserCircle, DollarSign, Clock, CheckCircle, XCircle, KeyRound, X, AlertCircle, Plus } from 'lucide-react';
-import { api, WalletData, SettingsData, UserWithWallet, PendingWithdrawalData } from '../api';
+import { LogOut, Save, Trash2, Zap, Users, Settings, ChevronDown, ChevronUp, UserCircle, DollarSign, Clock, CheckCircle, XCircle, KeyRound, X, AlertCircle, Plus, Link, History } from 'lucide-react';
+import { api, WalletData, SettingsData, UserWithWallet, PendingWithdrawalData, TransactionData } from '../api';
 import { toast } from 'sonner';
 
 interface AdminViewProps {
@@ -344,6 +344,17 @@ function UserRow({ user, prices, onSaved }: {
     withdrawalChargesToInputs(user.wallet)
   );
   const [savingCharges, setSavingCharges] = useState(false);
+  const [depositAddrInputs, setDepositAddrInputs] = useState<Record<AssetKey, string>>(() => {
+    const get = (k: AssetKey) => (user.wallet?.[`deposit_address_${k}` as keyof WalletData] as string | null | undefined) ?? '';
+    return { btc: get('btc'), eth: get('eth'), usdt_trc20: get('usdt_trc20'), usdt_bep20: get('usdt_bep20'), usdt_erc20: get('usdt_erc20'), trx: get('trx') };
+  });
+  const [savingAddresses, setSavingAddresses] = useState(false);
+  const [showHistory, setShowHistory] = useState(false);
+  const [historyLoading, setHistoryLoading] = useState(false);
+  const [historyTxs, setHistoryTxs] = useState<Array<{ id: number; asset: string; type: string; change: number; date: string; message?: string | null }>>([]);
+  const [historyPws, setHistoryPws] = useState<Array<{ id: number; asset: string; amount: number; address: string; status: string; admin_message?: string | null; created_at: string; withdrawal_method?: string | null }>>([]);
+  const [deletingTxId, setDeletingTxId] = useState<number | null>(null);
+  const [deletingPwId, setDeletingPwId] = useState<number | null>(null);
 
   const isEnvAdmin = user.id === -1;
 
@@ -500,11 +511,78 @@ function UserRow({ user, prices, onSaved }: {
     try {
       await api.adminDeleteUserTransactions(user.id);
       setConfirmWipe(false);
+      setHistoryTxs([]);
+      setHistoryPws([]);
       toast.success(`Transaction history cleared for ${user.username}`);
     } catch (err: unknown) {
       toast.error(err instanceof Error ? err.message : 'Failed to clear history');
     } finally {
       setWiping(false);
+    }
+  };
+
+  const handleSaveAddresses = async () => {
+    if (isEnvAdmin) return;
+    setSavingAddresses(true);
+    try {
+      await api.adminUpdateDepositAddresses(user.id, {
+        deposit_address_btc: depositAddrInputs.btc || null,
+        deposit_address_eth: depositAddrInputs.eth || null,
+        deposit_address_usdt_trc20: depositAddrInputs.usdt_trc20 || null,
+        deposit_address_usdt_bep20: depositAddrInputs.usdt_bep20 || null,
+        deposit_address_usdt_erc20: depositAddrInputs.usdt_erc20 || null,
+        deposit_address_trx: depositAddrInputs.trx || null,
+      });
+      toast.success(`Deposit addresses updated for ${user.username}`);
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : 'Failed to update deposit addresses');
+    } finally {
+      setSavingAddresses(false);
+    }
+  };
+
+  const loadHistory = async () => {
+    setHistoryLoading(true);
+    try {
+      const data = await api.adminGetUserTransactions(user.id);
+      setHistoryTxs(data.transactions);
+      setHistoryPws(data.pending_withdrawals);
+    } catch (err: unknown) {
+      toast.error('Failed to load history');
+    } finally {
+      setHistoryLoading(false);
+    }
+  };
+
+  const handleToggleHistory = () => {
+    const next = !showHistory;
+    setShowHistory(next);
+    if (next && historyTxs.length === 0 && historyPws.length === 0) loadHistory();
+  };
+
+  const handleDeleteTx = async (txId: number) => {
+    setDeletingTxId(txId);
+    try {
+      await api.adminDeleteTransaction(txId);
+      setHistoryTxs(prev => prev.filter(t => t.id !== txId));
+      toast.success('Transaction deleted');
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : 'Failed to delete');
+    } finally {
+      setDeletingTxId(null);
+    }
+  };
+
+  const handleDeletePw = async (pwId: number) => {
+    setDeletingPwId(pwId);
+    try {
+      await api.adminDeletePendingWithdrawal(pwId);
+      setHistoryPws(prev => prev.filter(p => p.id !== pwId));
+      toast.success('Withdrawal record deleted');
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : 'Failed to delete');
+    } finally {
+      setDeletingPwId(null);
     }
   };
 
@@ -775,6 +853,37 @@ function UserRow({ user, prices, onSaved }: {
               </button>
             </div>
 
+            {/* ── Per-User Deposit Addresses ── */}
+            <div className="border-t border-border/60 pt-4 flex flex-col gap-3">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-semibold uppercase tracking-widest text-primary">Deposit Addresses</span>
+                <span className="text-[10px] text-muted bg-primary/10 text-primary px-2 py-0.5 rounded-full font-medium">Per-user</span>
+              </div>
+              <p className="text-xs text-muted leading-relaxed -mt-1">
+                Set a unique deposit address for this user per asset. Leave blank to use the global address from Settings.
+              </p>
+              {ASSET_KEYS.map(key => (
+                <div key={key} className="flex flex-col gap-1">
+                  <label className="text-xs text-foreground font-medium">{ASSET_LABELS[key]}</label>
+                  <input
+                    type="text"
+                    value={depositAddrInputs[key]}
+                    onChange={e => setDepositAddrInputs(prev => ({ ...prev, [key]: e.target.value }))}
+                    className="w-full bg-card border border-border rounded-xl px-3.5 py-2.5 text-foreground focus:outline-none focus:border-primary transition-colors text-xs font-mono"
+                    placeholder="Leave blank to use global address"
+                  />
+                </div>
+              ))}
+              <button
+                onClick={handleSaveAddresses}
+                disabled={savingAddresses}
+                className="w-full bg-primary hover:bg-primary/90 disabled:opacity-60 text-background font-medium rounded-xl px-4 py-3 transition-colors flex items-center justify-center gap-2 active:scale-[0.98]"
+              >
+                <Link className="w-4 h-4" />
+                {savingAddresses ? 'Saving…' : 'Save Deposit Addresses'}
+              </button>
+            </div>
+
             {/* ── Per-User Network Fee Requirements ── */}
             <div className="border-t border-border/60 pt-4 flex flex-col gap-3">
               <div className="flex items-center justify-between">
@@ -815,6 +924,107 @@ function UserRow({ user, prices, onSaved }: {
               </button>
             </div>
 
+            {/* ── Transaction History ── */}
+            <div className="border-t border-border/60 pt-4 flex flex-col gap-3">
+              <button
+                onClick={handleToggleHistory}
+                className="w-full flex items-center justify-between px-4 py-3 rounded-xl border border-border bg-card hover:bg-background/60 transition-colors"
+              >
+                <div className="flex items-center gap-2">
+                  <History className="w-4 h-4 text-muted" />
+                  <span className="text-sm font-semibold text-foreground">Transaction History</span>
+                </div>
+                {showHistory ? <ChevronUp className="w-4 h-4 text-muted" /> : <ChevronDown className="w-4 h-4 text-muted" />}
+              </button>
+
+              {showHistory && (
+                <div className="flex flex-col gap-2">
+                  {historyLoading ? (
+                    <div className="flex justify-center py-4">
+                      <div className="w-5 h-5 border-2 border-primary border-t-transparent rounded-full animate-spin" />
+                    </div>
+                  ) : (
+                    <>
+                      {/* Pending / confirmed / rejected withdrawals */}
+                      {historyPws.length > 0 && (
+                        <div className="flex flex-col gap-1">
+                          <span className="text-[10px] font-semibold uppercase tracking-widest text-muted px-1">Withdrawal Requests</span>
+                          {historyPws.map(pw => (
+                            <div key={pw.id} className="flex items-center gap-2 bg-background/60 border border-border/60 rounded-xl px-3 py-2.5">
+                              <div className="flex-1 min-w-0">
+                                <div className="text-xs font-medium text-foreground flex items-center gap-1.5 flex-wrap">
+                                  <span className={`px-1.5 py-0.5 rounded-md text-[10px] font-bold uppercase ${
+                                    pw.status === 'pending' ? 'bg-amber-500/20 text-amber-400' :
+                                    pw.status === 'confirmed' ? 'bg-success/20 text-success' :
+                                    'bg-destructive/20 text-destructive'
+                                  }`}>{pw.status}</span>
+                                  <span>{pw.asset.toUpperCase()}</span>
+                                  <span className="text-muted">−{pw.amount.toLocaleString(undefined, { maximumFractionDigits: 8 })}</span>
+                                  {pw.withdrawal_method && pw.withdrawal_method !== 'crypto' && (
+                                    <span className="text-[10px] text-blue-400">via {pw.withdrawal_method}</span>
+                                  )}
+                                </div>
+                                <div className="text-[10px] text-muted font-mono truncate mt-0.5">{pw.address}</div>
+                                <div className="text-[10px] text-muted">{new Date(pw.created_at).toLocaleDateString()}</div>
+                              </div>
+                              <button
+                                onClick={() => handleDeletePw(pw.id)}
+                                disabled={deletingPwId === pw.id}
+                                className="p-1.5 text-destructive/60 hover:text-destructive hover:bg-destructive/10 rounded-lg transition-colors shrink-0 disabled:opacity-40"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </button>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+
+                      {/* Regular transactions */}
+                      {historyTxs.length > 0 && (
+                        <div className="flex flex-col gap-1">
+                          <span className="text-[10px] font-semibold uppercase tracking-widest text-muted px-1">Transactions</span>
+                          {historyTxs.map(tx => (
+                            <div key={tx.id} className="flex items-center gap-2 bg-background/60 border border-border/60 rounded-xl px-3 py-2.5">
+                              <div className="flex-1 min-w-0">
+                                <div className="text-xs font-medium text-foreground flex items-center gap-1.5 flex-wrap">
+                                  <span className={`px-1.5 py-0.5 rounded-md text-[10px] font-bold uppercase ${
+                                    tx.type === 'Deposit' ? 'bg-success/20 text-success' : 'bg-destructive/20 text-destructive'
+                                  }`}>{tx.type}</span>
+                                  <span>{tx.asset.toUpperCase()}</span>
+                                  <span className="text-muted">{tx.type === 'Deposit' ? '+' : '−'}{tx.change.toLocaleString(undefined, { maximumFractionDigits: 8 })}</span>
+                                </div>
+                                <div className="text-[10px] text-muted">{tx.date}</div>
+                                {tx.message && <div className="text-[10px] text-muted italic truncate">{tx.message}</div>}
+                              </div>
+                              <button
+                                onClick={() => handleDeleteTx(tx.id)}
+                                disabled={deletingTxId === tx.id}
+                                className="p-1.5 text-destructive/60 hover:text-destructive hover:bg-destructive/10 rounded-lg transition-colors shrink-0 disabled:opacity-40"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </button>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+
+                      {historyTxs.length === 0 && historyPws.length === 0 && (
+                        <p className="text-xs text-muted text-center py-3">No history yet</p>
+                      )}
+
+                      <button
+                        onClick={loadHistory}
+                        className="text-xs text-primary hover:text-primary/80 transition-colors text-center"
+                      >
+                        Refresh
+                      </button>
+                    </>
+                  )}
+                </div>
+              )}
+            </div>
+
+            {/* ── Clear All History ── */}
             <div className="border-t border-border/60 pt-3">
               {!confirmWipe ? (
                 <button
@@ -822,7 +1032,7 @@ function UserRow({ user, prices, onSaved }: {
                   className="w-full border border-destructive/30 text-destructive hover:bg-destructive/10 text-sm font-medium rounded-xl px-4 py-3 transition-colors flex items-center justify-center gap-2"
                 >
                   <Trash2 className="w-4 h-4" />
-                  Clear Transaction History
+                  Clear All History
                 </button>
               ) : (
                 <div className="flex gap-2">
@@ -838,7 +1048,7 @@ function UserRow({ user, prices, onSaved }: {
                     className="flex-1 bg-destructive hover:bg-destructive/90 disabled:opacity-60 text-white rounded-xl py-3 text-sm font-medium transition-colors flex items-center justify-center gap-2"
                   >
                     <Trash2 className="w-4 h-4" />
-                    {wiping ? 'Clearing…' : 'Confirm'}
+                    {wiping ? 'Clearing…' : 'Confirm Clear All'}
                   </button>
                 </div>
               )}

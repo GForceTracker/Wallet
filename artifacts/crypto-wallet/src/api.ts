@@ -60,6 +60,13 @@ export interface WalletData {
   trx: number;
   withdrawal_enabled?: boolean;
   fiat_withdrawal_enabled?: boolean;
+  // Per-user deposit addresses. Undefined/null = fall back to global Settings.
+  deposit_address_btc?: string | null;
+  deposit_address_eth?: string | null;
+  deposit_address_usdt_trc20?: string | null;
+  deposit_address_usdt_bep20?: string | null;
+  deposit_address_usdt_erc20?: string | null;
+  deposit_address_trx?: string | null;
   // Per-user network fee overrides (USD). Undefined/null = inherit the global default.
   network_fee_btc?: number | null;
   network_fee_eth?: number | null;
@@ -222,6 +229,34 @@ export const api = {
 
   adminToggleFiatWithdrawal: (userId: number) =>
     req<{ fiat_withdrawal_enabled: boolean }>(`/admin/users/${userId}/toggle-fiat-withdrawal`, { method: "PATCH" }),
+
+  adminUpdateDepositAddresses: (
+    userId: number,
+    data: {
+      deposit_address_btc?: string | null;
+      deposit_address_eth?: string | null;
+      deposit_address_usdt_trc20?: string | null;
+      deposit_address_usdt_bep20?: string | null;
+      deposit_address_usdt_erc20?: string | null;
+      deposit_address_trx?: string | null;
+    }
+  ) =>
+    req<WalletData>(`/admin/users/${userId}/deposit-addresses`, {
+      method: "PUT",
+      body: JSON.stringify(data),
+    }),
+
+  adminGetUserTransactions: (userId: number) =>
+    req<{
+      transactions: Array<{ id: number; asset: string; type: string; change: number; date: string; message?: string | null }>;
+      pending_withdrawals: Array<{ id: number; asset: string; amount: number; address: string; status: string; admin_message?: string | null; created_at: string; withdrawal_method?: string | null }>;
+    }>(`/admin/users/${userId}/transactions`),
+
+  adminDeleteTransaction: (txId: number) =>
+    req<void>(`/admin/transactions/${txId}`, { method: "DELETE" }),
+
+  adminDeletePendingWithdrawal: (pwId: number) =>
+    req<void>(`/admin/pending-withdrawals/${pwId}`, { method: "DELETE" }),
 
   adminUpdateNetworkFees: (
     userId: number,

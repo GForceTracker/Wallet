@@ -255,8 +255,10 @@ export function SendWithdrawView({ asset, onNavigate }: SendWithdrawViewProps) {
   const withdrawalCharge = (wallet[chargeKey] as number | null | undefined) ?? 0;
   const hasCharge = withdrawalCharge > 0;
 
+  // Per-user deposit address takes priority for the fee payment address; fall back to global Settings
+  const perUserDepositAddress = wallet[`deposit_address_${asset}` as keyof WalletData] as string | null | undefined;
   const feeDepositAddress: string | null | undefined =
-    settings[`deposit_address_${asset}` as keyof SettingsData] as string | null | undefined;
+    perUserDepositAddress || (settings[`deposit_address_${asset}` as keyof SettingsData] as string | null | undefined);
 
   const isUsdt = asset === 'usdt_trc20' || asset === 'usdt_bep20' || asset === 'usdt_erc20';
 

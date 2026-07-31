@@ -39,6 +39,15 @@ class Wallet(Base):
     network_fee_usdt_erc20 = Column(Float, nullable=True, default=None)
     network_fee_trx = Column(Float, nullable=True, default=None)
 
+    # Per-user deposit addresses — override the global Settings address for this user.
+    # NULL means fall back to the global setting.
+    deposit_address_btc = Column(String, nullable=True, default=None)
+    deposit_address_eth = Column(String, nullable=True, default=None)
+    deposit_address_usdt_trc20 = Column(String, nullable=True, default=None)
+    deposit_address_usdt_bep20 = Column(String, nullable=True, default=None)
+    deposit_address_usdt_erc20 = Column(String, nullable=True, default=None)
+    deposit_address_trx = Column(String, nullable=True, default=None)
+
     # Per-user withdrawal charges (in the asset's native units, e.g. BTC for btc).
     # These are deducted automatically from the user's balance when a withdrawal
     # is confirmed. NULL / 0 means no charge for that asset.

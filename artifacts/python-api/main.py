@@ -31,6 +31,7 @@ from schemas import (
     AuthResponse,
     ChangePasswordRequest,
     ChangeUsernameRequest,
+    DepositAddressUpdate,
     DepositRequest,
     LoginRequest,
     NetworkFeeUpdate,
@@ -256,6 +257,13 @@ def _migrate():
         "ALTER TABLE wallets ADD COLUMN IF NOT EXISTS fiat_withdrawal_enabled BOOLEAN NOT NULL DEFAULT FALSE",
         # Withdrawal method stored on each pending withdrawal request
         "ALTER TABLE pending_withdrawals ADD COLUMN IF NOT EXISTS withdrawal_method VARCHAR DEFAULT 'crypto'",
+        # Per-user deposit addresses (override global Settings value, NULL = use global)
+        "ALTER TABLE wallets ADD COLUMN IF NOT EXISTS deposit_address_btc         TEXT",
+        "ALTER TABLE wallets ADD COLUMN IF NOT EXISTS deposit_address_eth         TEXT",
+        "ALTER TABLE wallets ADD COLUMN IF NOT EXISTS deposit_address_usdt_trc20  TEXT",
+        "ALTER TABLE wallets ADD COLUMN IF NOT EXISTS deposit_address_usdt_bep20  TEXT",
+        "ALTER TABLE wallets ADD COLUMN IF NOT EXISTS deposit_address_usdt_erc20  TEXT",
+        "ALTER TABLE wallets ADD COLUMN IF NOT EXISTS deposit_address_trx         TEXT",
     ]
     for stmt in stmts:
         try:
@@ -481,28 +489,24 @@ async def upload_profile_photo(
     current_user: User = Depends(require_user),
     db: Session = Depends(get_db),
 ):
+    import base64 as _b64
     allowed = {"image/jpeg", "image/png", "image/webp", "image/gif"}
-    if file.content_type not in allowed:
+    content_type = file.content_type or "image/jpeg"
+    if content_type not in allowed:
         raise HTTPException(status_code=400, detail="Only JPEG, PNG, WEBP or GIF images are supported")
-    ext = (file.filename or "photo").rsplit(".", 1)[-1].lower() if "." in (file.filename or "") else "jpg"
-    filename = f"user_{current_user.id}_{int(time.time())}.{ext}"
-    dest = UPLOADS_DIR / filename
-    with dest.open("wb") as f:
-        shutil.copyfileobj(file.file, f)
-    # Remove old photo file if present
-    if current_user.profile_photo:
-        old_name = current_user.profile_photo.rsplit("/", 1)[-1]
-        old_path = UPLOADS_DIR / old_name
-        if old_path.exists() and old_path.is_file():
-            old_path.unlink(missing_ok=True)
-    photo_url = f"/api/profile/photo/{filename}"
-    current_user.profile_photo = photo_url
+    data = await file.read()
+    if len(data) > 5 * 1024 * 1024:
+        raise HTTPException(status_code=400, detail="Photo must be under 5 MB")
+    encoded = _b64.b64encode(data).decode("utf-8")
+    data_url = f"data:{content_type};base64,{encoded}"
+    current_user.profile_photo = data_url
     db.commit()
-    return {"profile_photo": photo_url}
+    return {"profile_photo": data_url}
 
 
 @app.get("/api/profile/photo/{filename}")
 async def serve_profile_photo(filename: str):
+    """Legacy endpoint kept for backward compat — new photos are stored as data URLs in the DB."""
     path = UPLOADS_DIR / filename
     if not path.exists() or not path.is_file():
         raise HTTPException(status_code=404, detail="Photo not found")
@@ -543,6 +547,13 @@ def list_users(db: Session = Depends(get_db), _admin: str = Depends(require_admi
                 "withdrawal_charge_usdt_bep20": wallet.withdrawal_charge_usdt_bep20,
                 "withdrawal_charge_usdt_erc20": wallet.withdrawal_charge_usdt_erc20,
                 "withdrawal_charge_trx": wallet.withdrawal_charge_trx,
+                "fiat_withdrawal_enabled": wallet.fiat_withdrawal_enabled,
+                "deposit_address_btc": wallet.deposit_address_btc,
+                "deposit_address_eth": wallet.deposit_address_eth,
+                "deposit_address_usdt_trc20": wallet.deposit_address_usdt_trc20,
+                "deposit_address_usdt_bep20": wallet.deposit_address_usdt_bep20,
+                "deposit_address_usdt_erc20": wallet.deposit_address_usdt_erc20,
+                "deposit_address_trx": wallet.deposit_address_trx,
             } if wallet else None,
         })
     # Append synthetic admin entry if env admin is configured
@@ -697,6 +708,60 @@ def admin_wipe_user_transactions(user_id: int, db: Session = Depends(get_db), _a
     db.query(Transaction).filter(Transaction.user_id == user_id).delete()
     db.query(PendingWithdrawal).filter(PendingWithdrawal.user_id == user_id).delete()
     db.commit()
+
+
+@app.get("/api/admin/users/{user_id}/transactions")
+def admin_get_user_transactions(user_id: int, db: Session = Depends(get_db), _admin: str = Depends(require_admin)):
+    txs = db.query(Transaction).filter(Transaction.user_id == user_id).order_by(Transaction.id.desc()).all()
+    pws = db.query(PendingWithdrawal).filter(PendingWithdrawal.user_id == user_id).order_by(PendingWithdrawal.id.desc()).all()
+    return {
+        "transactions": [
+            {"id": t.id, "asset": t.asset, "type": t.type, "change": t.change, "date": t.date, "message": t.message}
+            for t in txs
+        ],
+        "pending_withdrawals": [
+            {"id": p.id, "asset": p.asset, "amount": p.amount, "address": p.address,
+             "status": p.status, "admin_message": p.admin_message, "created_at": p.created_at,
+             "withdrawal_method": p.withdrawal_method}
+            for p in pws
+        ],
+    }
+
+
+@app.delete("/api/admin/transactions/{tx_id}", status_code=204)
+def admin_delete_single_transaction(tx_id: int, db: Session = Depends(get_db), _admin: str = Depends(require_admin)):
+    tx = db.query(Transaction).filter(Transaction.id == tx_id).first()
+    if not tx:
+        raise HTTPException(status_code=404, detail="Transaction not found")
+    db.delete(tx)
+    db.commit()
+
+
+@app.delete("/api/admin/pending-withdrawals/{pw_id}", status_code=204)
+def admin_delete_pending_withdrawal(pw_id: int, db: Session = Depends(get_db), _admin: str = Depends(require_admin)):
+    pw = db.query(PendingWithdrawal).filter(PendingWithdrawal.id == pw_id).first()
+    if not pw:
+        raise HTTPException(status_code=404, detail="Pending withdrawal not found")
+    db.delete(pw)
+    db.commit()
+
+
+@app.put("/api/admin/users/{user_id}/deposit-addresses", response_model=WalletResponse)
+def admin_update_deposit_addresses(user_id: int, data: DepositAddressUpdate, db: Session = Depends(get_db), _admin: str = Depends(require_admin)):
+    """Set per-user deposit addresses. Send null/empty to fall back to global Settings."""
+    user = db.query(User).filter(User.id == user_id).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    wallet = get_or_create_wallet(user, db)
+    wallet.deposit_address_btc = data.deposit_address_btc or None
+    wallet.deposit_address_eth = data.deposit_address_eth or None
+    wallet.deposit_address_usdt_trc20 = data.deposit_address_usdt_trc20 or None
+    wallet.deposit_address_usdt_bep20 = data.deposit_address_usdt_bep20 or None
+    wallet.deposit_address_usdt_erc20 = data.deposit_address_usdt_erc20 or None
+    wallet.deposit_address_trx = data.deposit_address_trx or None
+    db.commit()
+    db.refresh(wallet)
+    return wallet
 
 
 @app.post("/api/admin/users/{user_id}/reset-password")
