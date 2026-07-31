@@ -8,14 +8,22 @@
  * should not restore from their local cache.
  */
 
-import { TransactionData } from './api';
+import { TransactionData, getCurrentUser } from './api';
 
-const TX_KEY = 'wallet_transactions_v1';
-const WIPE_KEY = 'wallet_transactions_wiped_at';
+/** Build a user-scoped localStorage key so different accounts never share cached data. */
+function txKey(): string {
+  const user = getCurrentUser();
+  return user ? `wallet_transactions_v1_${user}` : 'wallet_transactions_v1_guest';
+}
+
+function wipeKey(): string {
+  const user = getCurrentUser();
+  return user ? `wallet_transactions_wiped_at_${user}` : 'wallet_transactions_wiped_at_guest';
+}
 
 export function saveTxToStorage(txs: TransactionData[]): void {
   try {
-    localStorage.setItem(TX_KEY, JSON.stringify(txs));
+    localStorage.setItem(txKey(), JSON.stringify(txs));
   } catch {
     // Quota exceeded or private-browsing restriction — fail silently
   }
@@ -23,7 +31,7 @@ export function saveTxToStorage(txs: TransactionData[]): void {
 
 export function loadTxFromStorage(): TransactionData[] {
   try {
-    const raw = localStorage.getItem(TX_KEY);
+    const raw = localStorage.getItem(txKey());
     if (!raw) return [];
     return JSON.parse(raw) as TransactionData[];
   } catch {
@@ -34,8 +42,8 @@ export function loadTxFromStorage(): TransactionData[] {
 /** Call this when admin wipes history — records the wipe time in localStorage. */
 export function markTxWiped(): void {
   try {
-    localStorage.setItem(WIPE_KEY, String(Date.now()));
-    localStorage.removeItem(TX_KEY);
+    localStorage.setItem(wipeKey(), String(Date.now()));
+    localStorage.removeItem(txKey());
   } catch {
     // ignore
   }
@@ -44,7 +52,7 @@ export function markTxWiped(): void {
 /** Returns true if an authoritative wipe happened after the oldest local tx. */
 function wasWipedAfterLocalData(localTxs: TransactionData[]): boolean {
   try {
-    const ts = localStorage.getItem(WIPE_KEY);
+    const ts = localStorage.getItem(wipeKey());
     if (!ts) return false;
     // Any wipe marker at all means the server was intentionally cleared
     return true;

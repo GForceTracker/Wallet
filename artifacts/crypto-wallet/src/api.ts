@@ -10,6 +10,10 @@ export function clearCurrentUser() {
   _currentUsername = "";
 }
 
+export function getCurrentUser() {
+  return _currentUsername;
+}
+
 export class ApiError extends Error {
   status: number;
   constructor(message: string, status: number) {

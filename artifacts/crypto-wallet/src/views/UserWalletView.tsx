@@ -165,14 +165,23 @@ export function UserWalletView({ username, onNavigate, onLogout, profilePhoto, o
   const walletName = wallet?.wallet_name || (username ? `${username}'s Wallet` : 'My Wallet');
 
   useEffect(() => {
-    Promise.all([api.getWallet(), api.getSettings(), api.getProfile()])
-      .then(([w, s, profile]) => {
+    // Fetch wallet + settings together; fetch profile photo independently so
+    // a failure in one does not prevent the other from loading.
+    Promise.all([api.getWallet(), api.getSettings()])
+      .then(([w, s]) => {
         setWallet(w);
         setSettings(s);
-        if (onPhotoLoad) onPhotoLoad(profile.profile_photo);
       })
       .catch(() => toast.error('Failed to load wallet data'))
       .finally(() => setLoading(false));
+
+    api.getProfile()
+      .then(profile => {
+        if (onPhotoLoad) onPhotoLoad(profile.profile_photo);
+      })
+      .catch(() => {
+        // Photo load failure is non-critical — wallet still usable without it
+      });
   }, []);
 
   // Refresh prices every 15 seconds
