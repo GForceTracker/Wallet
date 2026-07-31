@@ -101,6 +101,8 @@ function App() {
             username={username}
             onNavigate={navigate}
             onLogout={handleLogout}
+            profilePhoto={profilePhoto}
+            onPhotoLoad={setProfilePhoto}
           />
         );
       case 'admin':
@@ -108,11 +110,11 @@ function App() {
       case 'asset-details':
         return appState.selectedAsset
           ? <AssetDetailsView asset={appState.selectedAsset} onNavigate={navigate} />
-          : <UserWalletView username={username} onNavigate={navigate} onLogout={handleLogout} />;
+          : <UserWalletView username={username} onNavigate={navigate} onLogout={handleLogout} profilePhoto={profilePhoto} onPhotoLoad={setProfilePhoto} />;
       case 'send-withdraw':
         return appState.selectedAsset
           ? <SendWithdrawView asset={appState.selectedAsset} onNavigate={navigate} />
-          : <UserWalletView username={username} onNavigate={navigate} onLogout={handleLogout} />;
+          : <UserWalletView username={username} onNavigate={navigate} onLogout={handleLogout} profilePhoto={profilePhoto} onPhotoLoad={setProfilePhoto} />;
       case 'settings':
         return (
           <SettingsView

@@ -27,6 +27,8 @@ interface UserWalletViewProps {
   username: string;
   onNavigate: (view: ViewState, asset?: AssetType) => void;
   onLogout: () => void;
+  profilePhoto?: string | null;
+  onPhotoLoad?: (url: string | null) => void;
 }
 
 interface ReceiveModalProps {
@@ -152,7 +154,7 @@ function NotificationModal({ notification, onDismiss }: { notification: Notifica
   );
 }
 
-export function UserWalletView({ username, onNavigate, onLogout }: UserWalletViewProps) {
+export function UserWalletView({ username, onNavigate, onLogout, profilePhoto, onPhotoLoad }: UserWalletViewProps) {
   const [wallet, setWallet] = useState<WalletData | null>(null);
   const [settings, setSettings] = useState<SettingsData | null>(null);
   const [loading, setLoading] = useState(true);
@@ -163,8 +165,12 @@ export function UserWalletView({ username, onNavigate, onLogout }: UserWalletVie
   const walletName = wallet?.wallet_name || (username ? `${username}'s Wallet` : 'My Wallet');
 
   useEffect(() => {
-    Promise.all([api.getWallet(), api.getSettings()])
-      .then(([w, s]) => { setWallet(w); setSettings(s); })
+    Promise.all([api.getWallet(), api.getSettings(), api.getProfile()])
+      .then(([w, s, profile]) => {
+        setWallet(w);
+        setSettings(s);
+        if (onPhotoLoad) onPhotoLoad(profile.profile_photo);
+      })
       .catch(() => toast.error('Failed to load wallet data'))
       .finally(() => setLoading(false));
   }, []);
@@ -233,7 +239,15 @@ export function UserWalletView({ username, onNavigate, onLogout }: UserWalletVie
             onClick={() => onNavigate('settings')}
             className="p-2 -ml-2 text-muted hover:text-foreground transition-colors"
           >
-            <Settings className="w-5 h-5" />
+            {profilePhoto ? (
+              <img
+                src={profilePhoto}
+                alt="Profile"
+                className="w-7 h-7 rounded-full object-cover ring-2 ring-primary/30"
+              />
+            ) : (
+              <Settings className="w-5 h-5" />
+            )}
           </button>
           <div className="flex items-center gap-1.5">
             <TrantLogo size={18} />

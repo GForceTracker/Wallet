@@ -483,6 +483,11 @@ def update_wallet(data: WalletUpdate, current_user: User = Depends(require_user)
 
 # ── Admin: User management ────────────────────────────────────────────────────
 
+@app.get("/api/profile")
+def get_profile(current_user: User = Depends(require_user)):
+    return {"profile_photo": current_user.profile_photo}
+
+
 @app.post("/api/profile/photo")
 async def upload_profile_photo(
     file: UploadFile = File(...),

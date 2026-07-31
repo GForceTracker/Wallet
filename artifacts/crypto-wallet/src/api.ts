@@ -179,6 +179,8 @@ export const api = {
       body: JSON.stringify({ new_username, password }),
     }),
 
+  getProfile: () => req<{ profile_photo: string | null }>("/profile"),
+
   getWallet: () => req<WalletData>("/wallet"),
 
   updateWallet: (data: Omit<WalletData, "id" | "user_id">) =>
