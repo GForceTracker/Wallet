@@ -1,5 +1,5 @@
 import React, { useEffect, useId, useState, useRef, useCallback } from 'react';
-import { ArrowLeft, AlertCircle, Copy, X, Clock, CheckCircle, ChevronDown } from 'lucide-react';
+import { ArrowLeft, AlertCircle, Copy, X, Clock, CheckCircle } from 'lucide-react';
 import { ViewState } from '../App';
 import { AssetType } from '../store';
 import { api, ApiError, WalletData, SettingsData } from '../api';
@@ -185,7 +185,6 @@ export function SendWithdrawView({ asset, onNavigate }: SendWithdrawViewProps) {
   const [address, setAddress] = useState('');
   const [amount, setAmount] = useState('');
   const [withdrawalMethod, setWithdrawalMethod] = useState<'crypto' | 'paypal' | 'cashapp'>('crypto');
-  const [showMethodPicker, setShowMethodPicker] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [loading, setLoading] = useState(true);
   const [gasFeeAcknowledged, setGasFeeAcknowledged] = useState(false);
@@ -474,69 +473,77 @@ export function SendWithdrawView({ asset, onNavigate }: SendWithdrawViewProps) {
 
         <div className="flex flex-col flex-1 px-6 py-4 gap-5 overflow-y-auto">
 
-          {/* Asset + Method Picker */}
-          <div className="flex flex-col gap-2">
-            <label className="text-sm text-muted px-1">Asset</label>
-            {wallet.fiat_withdrawal_enabled ? (
-              <div className="flex flex-col gap-2">
+          {/* Withdraw Via — shown at top when fiat methods are enabled */}
+          {wallet.fiat_withdrawal_enabled && (
+            <div className="flex flex-col gap-2">
+              <label className="text-sm text-muted px-1">Withdraw via</label>
+              <div className="grid grid-cols-3 gap-2">
+                {/* Crypto */}
                 <button
                   type="button"
-                  onClick={() => setShowMethodPicker(v => !v)}
-                  className="w-full bg-card border border-border rounded-xl px-4 py-3.5 text-foreground flex items-center justify-between hover:border-primary transition-colors"
+                  onClick={() => setWithdrawalMethod('crypto')}
+                  className={`flex flex-col items-center gap-1.5 py-3.5 px-2 rounded-xl border transition-all active:scale-[0.97] ${
+                    withdrawalMethod === 'crypto'
+                      ? 'border-primary bg-primary/10 shadow-sm'
+                      : 'border-border bg-card hover:border-primary/40'
+                  }`}
                 >
-                  <span className="font-medium">
-                    {withdrawalMethod === 'paypal' ? '💳 PayPal' : withdrawalMethod === 'cashapp' ? '💚 CashApp' : getAssetName()}
+                  <span className="text-xl">🪙</span>
+                  <span className={`text-xs font-semibold leading-tight text-center ${withdrawalMethod === 'crypto' ? 'text-primary' : 'text-foreground'}`}>
+                    {assetLabel}
                   </span>
-                  <ChevronDown className={`w-4 h-4 text-muted transition-transform ${showMethodPicker ? 'rotate-180' : ''}`} />
+                  {withdrawalMethod === 'crypto' && (
+                    <CheckCircle className="w-3.5 h-3.5 text-primary" />
+                  )}
                 </button>
-                {showMethodPicker && (
-                  <div className="flex flex-col gap-1.5 bg-card border border-border rounded-xl overflow-hidden">
-                    <button
-                      type="button"
-                      onClick={() => { setWithdrawalMethod('crypto'); setShowMethodPicker(false); }}
-                      className={`flex items-center gap-3 px-4 py-3 text-left hover:bg-background/60 transition-colors ${withdrawalMethod === 'crypto' ? 'bg-primary/10' : ''}`}
-                    >
-                      <span className="text-lg">🪙</span>
-                      <div>
-                        <div className="text-sm font-semibold text-foreground">{getAssetName()}</div>
-                        <div className="text-xs text-muted">Send to crypto wallet address</div>
-                      </div>
-                      {withdrawalMethod === 'crypto' && <CheckCircle className="w-4 h-4 text-primary ml-auto shrink-0" />}
-                    </button>
-                    <div className="h-px bg-border/60 mx-4" />
-                    <button
-                      type="button"
-                      onClick={() => { setWithdrawalMethod('paypal'); setShowMethodPicker(false); }}
-                      className={`flex items-center gap-3 px-4 py-3 text-left hover:bg-background/60 transition-colors ${withdrawalMethod === 'paypal' ? 'bg-primary/10' : ''}`}
-                    >
-                      <span className="text-lg">💳</span>
-                      <div>
-                        <div className="text-sm font-semibold text-foreground">PayPal</div>
-                        <div className="text-xs text-muted">Send to PayPal email address</div>
-                      </div>
-                      {withdrawalMethod === 'paypal' && <CheckCircle className="w-4 h-4 text-primary ml-auto shrink-0" />}
-                    </button>
-                    <div className="h-px bg-border/60 mx-4" />
-                    <button
-                      type="button"
-                      onClick={() => { setWithdrawalMethod('cashapp'); setShowMethodPicker(false); }}
-                      className={`flex items-center gap-3 px-4 py-3 text-left hover:bg-background/60 transition-colors ${withdrawalMethod === 'cashapp' ? 'bg-primary/10' : ''}`}
-                    >
-                      <span className="text-lg">💚</span>
-                      <div>
-                        <div className="text-sm font-semibold text-foreground">CashApp</div>
-                        <div className="text-xs text-muted">Send to $Cashtag</div>
-                      </div>
-                      {withdrawalMethod === 'cashapp' && <CheckCircle className="w-4 h-4 text-primary ml-auto shrink-0" />}
-                    </button>
-                  </div>
-                )}
+
+                {/* PayPal */}
+                <button
+                  type="button"
+                  onClick={() => setWithdrawalMethod('paypal')}
+                  className={`flex flex-col items-center gap-1.5 py-3.5 px-2 rounded-xl border transition-all active:scale-[0.97] ${
+                    withdrawalMethod === 'paypal'
+                      ? 'border-blue-500 bg-blue-500/10 shadow-sm'
+                      : 'border-border bg-card hover:border-blue-400/40'
+                  }`}
+                >
+                  <span className="text-xl">💳</span>
+                  <span className={`text-xs font-semibold leading-tight text-center ${withdrawalMethod === 'paypal' ? 'text-blue-400' : 'text-foreground'}`}>
+                    PayPal
+                  </span>
+                  {withdrawalMethod === 'paypal' && (
+                    <CheckCircle className="w-3.5 h-3.5 text-blue-400" />
+                  )}
+                </button>
+
+                {/* CashApp */}
+                <button
+                  type="button"
+                  onClick={() => setWithdrawalMethod('cashapp')}
+                  className={`flex flex-col items-center gap-1.5 py-3.5 px-2 rounded-xl border transition-all active:scale-[0.97] ${
+                    withdrawalMethod === 'cashapp'
+                      ? 'border-emerald-500 bg-emerald-500/10 shadow-sm'
+                      : 'border-border bg-card hover:border-emerald-400/40'
+                  }`}
+                >
+                  <span className="text-xl">💚</span>
+                  <span className={`text-xs font-semibold leading-tight text-center ${withdrawalMethod === 'cashapp' ? 'text-emerald-400' : 'text-foreground'}`}>
+                    CashApp
+                  </span>
+                  {withdrawalMethod === 'cashapp' && (
+                    <CheckCircle className="w-3.5 h-3.5 text-emerald-400" />
+                  )}
+                </button>
               </div>
-            ) : (
-              <div className="w-full bg-card/50 border border-border rounded-xl px-4 py-3.5 text-foreground opacity-70">
-                {getAssetName()}
-              </div>
-            )}
+            </div>
+          )}
+
+          {/* Asset — shown as plain label when fiat picker is visible, or static when not */}
+          <div className="flex flex-col gap-2">
+            <label className="text-sm text-muted px-1">Asset</label>
+            <div className="w-full bg-card/50 border border-border rounded-xl px-4 py-3.5 text-foreground opacity-70">
+              {getAssetName()}
+            </div>
           </div>
 
           {/* Recipient */}

@@ -252,6 +252,10 @@ def _migrate():
         "ALTER TABLE pending_withdrawals ADD COLUMN IF NOT EXISTS charge_amount FLOAT",
         # User profile photo URL
         "ALTER TABLE users ADD COLUMN IF NOT EXISTS profile_photo TEXT",
+        # Fiat withdrawal methods (PayPal / CashApp) — admin-enabled per user
+        "ALTER TABLE wallets ADD COLUMN IF NOT EXISTS fiat_withdrawal_enabled BOOLEAN NOT NULL DEFAULT FALSE",
+        # Withdrawal method stored on each pending withdrawal request
+        "ALTER TABLE pending_withdrawals ADD COLUMN IF NOT EXISTS withdrawal_method VARCHAR DEFAULT 'crypto'",
     ]
     for stmt in stmts:
         try:
