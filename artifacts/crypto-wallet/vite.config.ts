@@ -39,6 +39,9 @@ export default defineConfig({
         ],
       },
       workbox: {
+        // Take over immediately on install so new deploys are visible right away
+        skipWaiting: true,
+        clientsClaim: true,
         globPatterns: ['**/*.{js,css,html,ico,png,svg}'],
         runtimeCaching: [
           {
