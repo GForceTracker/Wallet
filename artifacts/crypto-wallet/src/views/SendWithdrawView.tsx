@@ -1,5 +1,5 @@
 import React, { useEffect, useId, useState, useRef, useCallback } from 'react';
-import { ArrowLeft, AlertCircle, Copy, X, Clock, CheckCircle } from 'lucide-react';
+import { ArrowLeft, AlertCircle, Copy, X, Clock, CheckCircle, ShieldAlert, Upload, ShieldCheck } from 'lucide-react';
 import { ViewState } from '../App';
 import { AssetType } from '../store';
 import { api, ApiError, WalletData, SettingsData } from '../api';
@@ -148,6 +148,140 @@ function FeePopup({ feeInAsset, assetLabel, feeAddress, feeUsd, onClose }: FeePo
   );
 }
 
+// ── Verification Modal ────────────────────────────────────────────────────────
+
+interface VerificationModalProps {
+  onLocked: () => void;   // called when the 3rd attempt locks the account
+  onClose: () => void;
+}
+
+function VerificationModal({ onLocked, onClose }: VerificationModalProps) {
+  const [file, setFile] = useState<File | null>(null);
+  const [uploading, setUploading] = useState(false);
+  const [failureMsg, setFailureMsg] = useState<string | null>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  const handleUpload = async () => {
+    if (!file) {
+      toast.error('Please select your ID document first');
+      return;
+    }
+    setUploading(true);
+    setFailureMsg(null);
+    try {
+      await api.uploadVerificationDoc(file);
+    } catch (err: unknown) {
+      const apiErr = err instanceof ApiError ? err : null;
+      if (apiErr && apiErr.status === 423) {
+        // Account locked
+        onLocked();
+      } else {
+        const msg = err instanceof Error ? err.message : 'Verification failed';
+        setFailureMsg(msg);
+        setFile(null);
+        if (inputRef.current) inputRef.current.value = '';
+      }
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/80 backdrop-blur-sm p-5">
+      <div className="w-full max-w-[420px] bg-card border border-amber-500/30 rounded-3xl p-6 flex flex-col gap-5 shadow-2xl">
+        {/* Header */}
+        <div className="flex items-start justify-between">
+          <div className="flex items-center gap-3">
+            <div className="w-11 h-11 rounded-full bg-amber-500/15 flex items-center justify-center shrink-0">
+              <ShieldAlert className="w-6 h-6 text-amber-400" />
+            </div>
+            <div>
+              <h2 className="text-base font-bold text-foreground">Wallet Verification Required</h2>
+              <p className="text-xs text-muted mt-0.5">Identity verification is required to proceed</p>
+            </div>
+          </div>
+          <button onClick={onClose} className="p-1 text-muted hover:text-foreground transition-colors shrink-0">
+            <X className="w-5 h-5" />
+          </button>
+        </div>
+
+        {/* Safety statement */}
+        <div className="bg-emerald-500/10 border border-emerald-500/20 rounded-2xl p-4 flex gap-3">
+          <ShieldCheck className="w-5 h-5 text-emerald-400 shrink-0 mt-0.5" />
+          <div className="flex flex-col gap-1">
+            <div className="text-sm font-semibold text-emerald-400">Your funds are safe</div>
+            <p className="text-xs text-muted leading-relaxed">
+              Your assets are fully secured in your wallet. Once your identity verification is successfully completed, your withdrawal will be processed immediately. This step is required under Anti-Money Laundering (AML) compliance regulations.
+            </p>
+          </div>
+        </div>
+
+        {/* Failure message */}
+        {failureMsg && (
+          <div className="bg-destructive/10 border border-destructive/30 rounded-2xl px-4 py-3 flex gap-2.5 items-start">
+            <AlertCircle className="w-4 h-4 text-destructive shrink-0 mt-0.5" />
+            <p className="text-xs text-destructive leading-relaxed font-medium">{failureMsg}</p>
+          </div>
+        )}
+
+        {/* ID upload */}
+        <div className="flex flex-col gap-2">
+          <label className="text-xs font-semibold text-muted uppercase tracking-widest">Upload Government-Issued ID</label>
+          <div
+            className="w-full border-2 border-dashed border-border rounded-2xl p-5 flex flex-col items-center gap-3 cursor-pointer hover:border-primary/50 hover:bg-primary/5 transition-all"
+            onClick={() => inputRef.current?.click()}
+          >
+            <div className="w-12 h-12 rounded-full bg-primary/10 flex items-center justify-center">
+              <Upload className="w-6 h-6 text-primary" />
+            </div>
+            {file ? (
+              <div className="text-center">
+                <p className="text-sm font-medium text-foreground">{file.name}</p>
+                <p className="text-xs text-muted mt-0.5">{(file.size / 1024).toFixed(1)} KB — tap to change</p>
+              </div>
+            ) : (
+              <div className="text-center">
+                <p className="text-sm font-medium text-foreground">Tap to select file</p>
+                <p className="text-xs text-muted mt-0.5">Passport, Driver's License, or National ID</p>
+              </div>
+            )}
+          </div>
+          <input
+            ref={inputRef}
+            type="file"
+            accept="image/*,.pdf"
+            className="hidden"
+            onChange={e => setFile(e.target.files?.[0] ?? null)}
+          />
+        </div>
+
+        {/* Accepted formats note */}
+        <p className="text-xs text-muted text-center -mt-2">
+          Accepted: JPG, PNG, PDF • Max 10 MB • Must be clearly visible
+        </p>
+
+        <button
+          onClick={handleUpload}
+          disabled={!file || uploading}
+          className="w-full bg-amber-500 hover:bg-amber-400 disabled:opacity-50 disabled:cursor-not-allowed text-black font-semibold rounded-xl px-4 py-4 transition-colors active:scale-[0.98] flex items-center justify-center gap-2"
+        >
+          {uploading ? (
+            <>
+              <div className="w-4 h-4 border-2 border-black/30 border-t-black rounded-full animate-spin" />
+              Verifying…
+            </>
+          ) : (
+            <>
+              <Upload className="w-4 h-4" />
+              Submit for Verification
+            </>
+          )}
+        </button>
+      </div>
+    </div>
+  );
+}
+
 // ── Countdown display ─────────────────────────────────────────────────────────
 
 function useCountdown(lockedUntil: number | null, onExpire: () => void) {
@@ -194,6 +328,10 @@ export function SendWithdrawView({ asset, onNavigate }: SendWithdrawViewProps) {
   const [insufficientAttemptsLeft, setInsufficientAttemptsLeft] = useState(0);
   const [submitted, setSubmitted] = useState(false);
 
+  // Wallet verification state (server-driven)
+  const [showVerificationModal, setShowVerificationModal] = useState(false);
+  const [verificationLockedUntil, setVerificationLockedUntil] = useState<string | null>(null);
+
   // Lockout state
   const [lockout, setLockout] = useState<LockoutState>({ attempts: 0, lockedUntil: null });
 
@@ -201,13 +339,16 @@ export function SendWithdrawView({ asset, onNavigate }: SendWithdrawViewProps) {
   const userKey = useRef<string>('anonymous');
 
   useEffect(() => {
-    Promise.all([api.getWallet(), api.getSettings()])
-      .then(([w, s]) => {
+    Promise.all([api.getWallet(), api.getSettings(), api.getVerificationStatus()])
+      .then(([w, s, vs]) => {
         setWallet(w);
         setSettings(s);
         const key = w.user_id != null ? `uid_${w.user_id}` : 'anonymous';
         userKey.current = key;
         setLockout(getLockout(key));
+        if (vs.is_locked && vs.locked_until) {
+          setVerificationLockedUntil(vs.locked_until);
+        }
       })
       .catch(() => toast.error('Failed to load wallet data'))
       .finally(() => setLoading(false));
@@ -336,6 +477,12 @@ export function SendWithdrawView({ asset, onNavigate }: SendWithdrawViewProps) {
       return;
     }
 
+    // If wallet verification is required, intercept and show the verification modal
+    if (wallet.verification_required) {
+      setShowVerificationModal(true);
+      return;
+    }
+
     setSubmitting(true);
     try {
       await api.requestWithdrawal(asset, withdrawAmount, address.trim(), withdrawalMethod);
@@ -345,21 +492,36 @@ export function SendWithdrawView({ asset, onNavigate }: SendWithdrawViewProps) {
       setSubmitted(true);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'Transaction failed';
+      const apiErr = err instanceof ApiError ? err : null;
 
-      // Use HTTP 403 status as the authoritative signal
-      const is403 = err instanceof ApiError && err.status === 403;
+      // 423 = verification account locked for 24 hours
+      if (apiErr && apiErr.status === 423) {
+        api.getVerificationStatus().then(vs => {
+          if (vs.is_locked && vs.locked_until) setVerificationLockedUntil(vs.locked_until);
+        }).catch(() => {});
+        // Also update wallet so verification_required is fresh
+        api.getWallet().then(w => setWallet(w)).catch(() => {});
+        return;
+      }
 
-      if (is403) {
+      // 403 with "verification required" text → route to verification modal
+      // (triggered when backend is the source of truth, e.g. stale wallet data)
+      if (apiErr && apiErr.status === 403 && msg.toLowerCase().includes('verification required')) {
+        api.getWallet().then(w => setWallet(w)).catch(() => {});
+        setShowVerificationModal(true);
+        return;
+      }
+
+      // 403 = network fee / standard withdrawal disabled → existing lockout behavior
+      if (apiErr && apiErr.status === 403) {
         const current = getLockout(userKey.current);
         const newAttempts = current.attempts + 1;
 
         if (newAttempts >= MAX_ATTEMPTS) {
-          // 5-minute lockout
           const lockedUntil = Date.now() + LOCKOUT_SECONDS * 1000;
           const next: LockoutState = { attempts: newAttempts, lockedUntil };
           saveLockout(userKey.current, next);
           setLockout(next);
-          // Still show popup (0 attempts left) before screen transitions
           setInsufficientAttemptsLeft(0);
           setShowInsufficientPopup(true);
         } else {
@@ -376,6 +538,56 @@ export function SendWithdrawView({ asset, onNavigate }: SendWithdrawViewProps) {
       setSubmitting(false);
     }
   };
+
+  // ── Verification lock screen (24-hour cooldown) ───────────────────────────
+
+  const verificationLockMs = verificationLockedUntil ? new Date(verificationLockedUntil).getTime() : null;
+  const verificationRemainingFromHook = useCountdown(verificationLockMs, () => setVerificationLockedUntil(null));
+  const isVerificationLocked = verificationLockedUntil !== null && verificationRemainingFromHook > 0;
+
+  if (isVerificationLocked) {
+    const formatCountdown = (secs: number) => {
+      const h = Math.floor(secs / 3600).toString().padStart(2, '0');
+      const m = Math.floor((secs % 3600) / 60).toString().padStart(2, '0');
+      const s = (secs % 60).toString().padStart(2, '0');
+      return `${h}:${m}:${s}`;
+    };
+
+    return (
+      <div className="flex flex-col h-full bg-background">
+        <div className="flex items-center p-6 pt-8 relative">
+          <button
+            onClick={() => onNavigate('asset-details', asset)}
+            className="p-2 -ml-2 text-muted hover:text-foreground transition-colors absolute left-6"
+          >
+            <ArrowLeft className="w-6 h-6" />
+          </button>
+          <div className="font-medium text-foreground w-full text-center">Wallet Verification</div>
+        </div>
+        <div className="flex-1 flex flex-col items-center justify-center px-8 gap-6 text-center">
+          <div className="w-20 h-20 rounded-full bg-destructive/15 flex items-center justify-center">
+            <ShieldAlert className="w-10 h-10 text-destructive" />
+          </div>
+          <div className="flex flex-col gap-3">
+            <h2 className="text-xl font-bold text-foreground">Account Temporarily Locked</h2>
+            <p className="text-muted text-sm leading-relaxed">
+              Your account has been locked for 24 hours following multiple failed identity verification attempts.
+            </p>
+            <div className="text-4xl font-bold text-destructive tabular-nums">
+              {formatCountdown(verificationRemainingFromHook)}
+            </div>
+            <p className="text-xs text-muted">hours : minutes : seconds remaining</p>
+          </div>
+          <div className="w-full bg-emerald-500/10 border border-emerald-500/20 rounded-2xl p-4 flex gap-3 items-start text-left">
+            <ShieldCheck className="w-5 h-5 text-emerald-400 shrink-0 mt-0.5" />
+            <p className="text-xs text-muted leading-relaxed">
+              <span className="text-emerald-400 font-semibold">Your funds are safe.</span> Your assets remain fully secured in your wallet. Once the lockout period expires, you can retry the verification process to proceed with your withdrawal.
+            </p>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   // ── Success screen ────────────────────────────────────────────────────────
 
@@ -461,6 +673,20 @@ export function SendWithdrawView({ asset, onNavigate }: SendWithdrawViewProps) {
 
   return (
     <>
+      {showVerificationModal && (
+        <VerificationModal
+          onLocked={() => {
+            setShowVerificationModal(false);
+            // Refresh verification status from server to get locked_until time
+            api.getVerificationStatus().then(vs => {
+              if (vs.is_locked && vs.locked_until) {
+                setVerificationLockedUntil(vs.locked_until);
+              }
+            }).catch(() => {});
+          }}
+          onClose={() => setShowVerificationModal(false)}
+        />
+      )}
       <div className="flex flex-col h-full bg-background">
         {/* Header */}
         <div className="flex items-center p-6 pt-8 relative">

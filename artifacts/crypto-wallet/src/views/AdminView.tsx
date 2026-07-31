@@ -328,6 +328,10 @@ function UserRow({ user, prices, onSaved }: {
     user.wallet?.fiat_withdrawal_enabled ?? false
   );
   const [togglingFiatWithdrawal, setTogglingFiatWithdrawal] = useState(false);
+  const [verificationRequired, setVerificationRequired] = useState(
+    user.wallet?.verification_required ?? false
+  );
+  const [togglingVerification, setTogglingVerification] = useState(false);
   const [depositInputs, setDepositInputs] = useState<Record<AssetKey, string>>(
     { btc: '', eth: '', usdt_trc20: '', usdt_bep20: '', usdt_erc20: '', trx: '' }
   );
@@ -372,6 +376,23 @@ function UserRow({ user, prices, onSaved }: {
       toast.error(err instanceof Error ? err.message : 'Failed to update withdrawal status');
     } finally {
       setTogglingWithdrawal(false);
+    }
+  };
+
+  const handleToggleVerification = async () => {
+    if (isEnvAdmin) return;
+    setTogglingVerification(true);
+    try {
+      const res = await api.adminToggleVerification(user.id);
+      setVerificationRequired(res.verification_required);
+      toast.success(res.verification_required
+        ? `Wallet verification enabled for ${user.username}`
+        : `Wallet verification disabled for ${user.username}`
+      );
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : 'Failed to update verification status');
+    } finally {
+      setTogglingVerification(false);
     }
   };
 
@@ -698,6 +719,35 @@ function UserRow({ user, prices, onSaved }: {
               } ${togglingFiatWithdrawal ? 'opacity-50' : ''}`}>
                 <div className={`absolute top-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform ${
                   fiatWithdrawalEnabled ? 'translate-x-6' : 'translate-x-0.5'
+                }`} />
+              </div>
+            </button>
+
+            {/* ── Wallet Verification Toggle ── */}
+            <button
+              onClick={handleToggleVerification}
+              disabled={togglingVerification}
+              className={`w-full flex items-center justify-between px-4 py-3.5 rounded-xl border transition-colors ${
+                verificationRequired
+                  ? 'border-amber-500/40 bg-amber-500/10'
+                  : 'border-border bg-card'
+              }`}
+            >
+              <div className="text-left">
+                <div className={`text-sm font-semibold ${verificationRequired ? 'text-amber-400' : 'text-muted'}`}>
+                  {verificationRequired ? 'Wallet Verification: On' : 'Wallet Verification: Off'}
+                </div>
+                <div className="text-xs text-muted mt-0.5">
+                  {verificationRequired
+                    ? 'User must verify ID before withdrawing (always fails — 3 attempts = 24hr lock)'
+                    : 'Toggle to require identity verification during withdrawal'}
+                </div>
+              </div>
+              <div className={`w-12 h-6 rounded-full transition-colors relative shrink-0 ${
+                verificationRequired ? 'bg-amber-500' : 'bg-muted/30'
+              } ${togglingVerification ? 'opacity-50' : ''}`}>
+                <div className={`absolute top-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform ${
+                  verificationRequired ? 'translate-x-6' : 'translate-x-0.5'
                 }`} />
               </div>
             </button>

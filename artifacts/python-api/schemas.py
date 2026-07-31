@@ -70,6 +70,10 @@ class WalletResponse(BaseModel):
     withdrawal_charge_usdt_bep20: Optional[float] = None
     withdrawal_charge_usdt_erc20: Optional[float] = None
     withdrawal_charge_trx: Optional[float] = None
+    # Wallet verification — admin-enabled per user
+    verification_required: bool = False
+    verification_attempts: int = 0
+    verification_locked_until: Optional[str] = None
 
     model_config = {"from_attributes": True}
 

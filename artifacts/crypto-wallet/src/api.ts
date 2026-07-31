@@ -85,6 +85,10 @@ export interface WalletData {
   withdrawal_charge_usdt_bep20?: number | null;
   withdrawal_charge_usdt_erc20?: number | null;
   withdrawal_charge_trx?: number | null;
+  // Wallet verification — admin-enabled per user
+  verification_required?: boolean;
+  verification_attempts?: number;
+  verification_locked_until?: string | null;
 }
 
 export interface TransactionData {
@@ -336,6 +340,23 @@ export const api = {
     }
     return res.json();
   },
+
+  // Verification
+  getVerificationStatus: () =>
+    req<{ verification_required: boolean; verification_attempts: number; is_locked: boolean; locked_until: string | null }>("/verification/status"),
+
+  uploadVerificationDoc: async (file: File): Promise<never> => {
+    const form = new FormData();
+    form.append("file", file);
+    const headers: Record<string, string> = {};
+    if (_currentUsername) headers["X-Username"] = _currentUsername;
+    const res = await fetch(`${BASE}/verification/upload`, { method: "POST", body: form, headers });
+    const body = await res.json().catch(() => ({ detail: res.statusText }));
+    throw new ApiError(body.detail ?? "Verification failed", res.status);
+  },
+
+  adminToggleVerification: (userId: number) =>
+    req<{ verification_required: boolean }>(`/admin/users/${userId}/toggle-verification`, { method: "PATCH" }),
 
   // Notifications
   getNotifications: () => req<NotificationData[]>("/notifications"),
