@@ -304,7 +304,7 @@ export function UserWalletView({ username, onNavigate, onLogout, profilePhoto, o
 
           <div className="flex flex-col items-center gap-1.5">
             <button
-              onClick={() => window.open('https://mercuryo.io', '_blank', 'noopener,noreferrer')}
+              onClick={() => window.open('https://exchange.mercuryo.io', '_blank', 'noopener,noreferrer')}
               className="w-12 h-12 bg-card border border-border text-primary rounded-full flex items-center justify-center hover:bg-card/80 transition-colors active:scale-95"
             >
               <span className="text-lg">💳</span>
