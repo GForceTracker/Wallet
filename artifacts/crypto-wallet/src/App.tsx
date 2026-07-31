@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Toaster } from 'sonner';
 import { LoginView } from './views/LoginView';
@@ -28,15 +28,43 @@ export interface AppState {
   currentUser: CurrentUser | null;
 }
 
+const SESSION_KEY = 'trant_session_v1';
+
+interface SavedSession {
+  username: string;
+  role: string;
+  userId: number | null;
+}
+
+function saveSession(user: SavedSession) {
+  try { localStorage.setItem(SESSION_KEY, JSON.stringify(user)); } catch {}
+}
+
+function clearSession() {
+  try { localStorage.removeItem(SESSION_KEY); } catch {}
+}
+
+function loadSession(): SavedSession | null {
+  try {
+    const raw = localStorage.getItem(SESSION_KEY);
+    if (!raw) return null;
+    return JSON.parse(raw) as SavedSession;
+  } catch { return null; }
+}
+
 function App() {
   const [showSplash, setShowSplash] = useState(true);
   const colorScheme = useColorScheme();
   const [profilePhoto, setProfilePhoto] = useState<string | null>(null);
 
+  // Restore session from localStorage before showing anything
+  const saved = loadSession();
+  if (saved) setCurrentUser(saved.username);
+
   const [appState, setAppState] = useState<AppState>({
-    currentView: 'login',
+    currentView: saved ? (saved.role === 'admin' ? 'admin' : 'user-wallet') : 'login',
     selectedAsset: null,
-    currentUser: null,
+    currentUser: saved ?? null,
   });
 
   const navigate = (view: ViewState, asset?: AssetType) => {
@@ -49,6 +77,7 @@ function App() {
 
   const handleLogin = (username: string, role: string, userId: number | null) => {
     setCurrentUser(username);
+    saveSession({ username, role, userId });
     setAppState(prev => ({
       ...prev,
       currentUser: { username, role, userId },
@@ -58,6 +87,7 @@ function App() {
 
   const handleLogout = () => {
     clearCurrentUser();
+    clearSession();
     setProfilePhoto(null);
     setAppState({
       currentView: 'login',
