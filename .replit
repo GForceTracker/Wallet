@@ -28,13 +28,13 @@ args = "Frontend"
 name = "Python API"
 author = "agent"
 
-[[workflows.workflow.tasks]]
-task = "shell.exec"
-args = "cd artifacts/python-api && pip install -r requirements.txt -q && python main.py"
-waitForPort = 8000
-
 [workflows.workflow.metadata]
 outputType = "console"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "cd artifacts/python-api && { md5sum -c .req_hash 2>/dev/null && echo 'deps up-to-date, skipping install'; } || { pip install -r requirements.txt -q && md5sum requirements.txt > .req_hash; } && python main.py"
+waitForPort = 8000
 
 [[workflows.workflow]]
 name = "Frontend"
