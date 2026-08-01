@@ -314,20 +314,24 @@ export function SendWithdrawView({ asset, onNavigate }: SendWithdrawViewProps) {
   const userKey = useRef<string>('anonymous');
 
   useEffect(() => {
-    Promise.all([api.getWallet(), api.getSettings(), api.getVerificationStatus()])
-      .then(([w, s, vs]) => {
+    Promise.all([api.getWallet(), api.getSettings()])
+      .then(([w, s]) => {
         setWallet(w);
         setSettings(s);
         const key = w.user_id != null ? `uid_${w.user_id}` : 'anonymous';
         userKey.current = key;
         setLockout(getLockout(key));
-        if (vs.is_locked && vs.locked_until) {
-          setVerificationLockedUntil(vs.locked_until);
-        }
-        setVerificationAttempts(vs.verification_attempts ?? 0);
       })
       .catch(() => toast.error('Failed to load wallet data'))
       .finally(() => setLoading(false));
+
+    // Fetch verification status independently — a failure here must not blank the whole view
+    api.getVerificationStatus()
+      .then(vs => {
+        if (vs.is_locked && vs.locked_until) setVerificationLockedUntil(vs.locked_until);
+        setVerificationAttempts(vs.verification_attempts ?? 0);
+      })
+      .catch(() => {/* non-critical — verification section simply won't show */});
   }, []);
 
   useEffect(() => {
