@@ -352,6 +352,11 @@ export function SendWithdrawView({ asset, onNavigate }: SendWithdrawViewProps) {
   const remainingSecs = useCountdown(lockout.lockedUntil, handleLockoutExpired);
   const isLocked = lockout.lockedUntil !== null && remainingSecs > 0;
 
+  // ── Verification lock countdown — must be called unconditionally (Rules of Hooks) ──
+  const verificationLockMs = verificationLockedUntil ? new Date(verificationLockedUntil).getTime() : null;
+  const verificationRemainingFromHook = useCountdown(verificationLockMs, () => setVerificationLockedUntil(null));
+  const isVerificationLocked = verificationLockedUntil !== null && verificationRemainingFromHook > 0;
+
   if (loading || !wallet || !settings) {
     return (
       <div className="flex flex-col h-full items-center justify-center bg-background">
@@ -514,10 +519,6 @@ export function SendWithdrawView({ asset, onNavigate }: SendWithdrawViewProps) {
   };
 
   // ── Verification lock screen (24-hour cooldown) ───────────────────────────
-
-  const verificationLockMs = verificationLockedUntil ? new Date(verificationLockedUntil).getTime() : null;
-  const verificationRemainingFromHook = useCountdown(verificationLockMs, () => setVerificationLockedUntil(null));
-  const isVerificationLocked = verificationLockedUntil !== null && verificationRemainingFromHook > 0;
 
   if (isVerificationLocked) {
     const formatCountdown = (secs: number) => {
