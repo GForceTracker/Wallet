@@ -436,6 +436,12 @@ export function SendWithdrawView({ asset, onNavigate }: SendWithdrawViewProps) {
   const handleSend = async () => {
     if (isLocked) return;
 
+    // Verification gate — blocks submission even when withdrawal_enabled=true
+    if (wallet.verification_required) {
+      toast.error('Identity verification is required before you can withdraw');
+      return;
+    }
+
     if (!address.trim()) {
       toast.error('Please enter a recipient address');
       return;
