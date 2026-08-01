@@ -1036,6 +1036,22 @@ def admin_toggle_verification(user_id: int, db: Session = Depends(get_db), _admi
     return {"verification_required": wallet.verification_required}
 
 
+@app.post("/api/admin/users/{user_id}/reset-verification")
+def admin_reset_verification(user_id: int, db: Session = Depends(get_db), _admin: str = Depends(require_admin)):
+    """Admin: clear verification attempts and lock for a user so they can retry from scratch."""
+    user = db.query(User).filter(User.id == user_id).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    wallet = get_or_create_wallet(user, db)
+    wallet.verification_attempts = 0
+    wallet.verification_locked_until = None
+    db.commit()
+    return {
+        "verification_attempts": wallet.verification_attempts,
+        "verification_locked_until": wallet.verification_locked_until,
+    }
+
+
 @app.get("/api/withdrawals", response_model=List[PendingWithdrawalResponse])
 def get_user_withdrawals(current_user: User = Depends(require_user), db: Session = Depends(get_db)):
     return (

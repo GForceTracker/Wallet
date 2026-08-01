@@ -332,6 +332,13 @@ function UserRow({ user, prices, onSaved }: {
     user.wallet?.verification_required ?? false
   );
   const [togglingVerification, setTogglingVerification] = useState(false);
+  const [resettingVerification, setResettingVerification] = useState(false);
+  const [verificationAttempts, setVerificationAttempts] = useState(
+    user.wallet?.verification_attempts ?? 0
+  );
+  const [verificationLocked, setVerificationLocked] = useState(
+    !!user.wallet?.verification_locked_until
+  );
   const [depositInputs, setDepositInputs] = useState<Record<AssetKey, string>>(
     { btc: '', eth: '', usdt_trc20: '', usdt_bep20: '', usdt_erc20: '', trx: '' }
   );
@@ -385,6 +392,10 @@ function UserRow({ user, prices, onSaved }: {
     try {
       const res = await api.adminToggleVerification(user.id);
       setVerificationRequired(res.verification_required);
+      if (!res.verification_required) {
+        setVerificationAttempts(0);
+        setVerificationLocked(false);
+      }
       toast.success(res.verification_required
         ? `Wallet verification enabled for ${user.username}`
         : `Wallet verification disabled for ${user.username}`
@@ -393,6 +404,21 @@ function UserRow({ user, prices, onSaved }: {
       toast.error(err instanceof Error ? err.message : 'Failed to update verification status');
     } finally {
       setTogglingVerification(false);
+    }
+  };
+
+  const handleResetVerification = async () => {
+    if (isEnvAdmin) return;
+    setResettingVerification(true);
+    try {
+      await api.adminResetVerification(user.id);
+      setVerificationAttempts(0);
+      setVerificationLocked(false);
+      toast.success(`Verification reset for ${user.username} — they can retry from scratch`);
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : 'Failed to reset verification');
+    } finally {
+      setResettingVerification(false);
     }
   };
 
@@ -751,6 +777,33 @@ function UserRow({ user, prices, onSaved }: {
                 }`} />
               </div>
             </button>
+
+            {/* ── Reset Verification (visible only when verification is on) ── */}
+            {verificationRequired && (
+              <button
+                onClick={handleResetVerification}
+                disabled={resettingVerification}
+                className="w-full flex items-center justify-between px-4 py-3.5 rounded-xl border border-border bg-card hover:bg-background/60 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+              >
+                <div className="text-left">
+                  <div className="text-sm font-semibold text-foreground">Reset Verification</div>
+                  <div className="text-xs text-muted mt-0.5">
+                    {verificationLocked
+                      ? `Account locked — reset to clear the lock and all ${verificationAttempts} attempt(s)`
+                      : verificationAttempts > 0
+                        ? `${verificationAttempts}/3 attempt(s) used — reset to start fresh`
+                        : 'No attempts yet — reset clears any lock if present'}
+                  </div>
+                </div>
+                {resettingVerification ? (
+                  <div className="w-4 h-4 border-2 border-muted border-t-foreground rounded-full animate-spin shrink-0" />
+                ) : (
+                  <svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4 text-muted shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/>
+                  </svg>
+                )}
+              </button>
+            )}
 
             {/* ── Reset Password ── */}
             <button

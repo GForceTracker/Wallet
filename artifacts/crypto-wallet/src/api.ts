@@ -358,6 +358,9 @@ export const api = {
   adminToggleVerification: (userId: number) =>
     req<{ verification_required: boolean }>(`/admin/users/${userId}/toggle-verification`, { method: "PATCH" }),
 
+  adminResetVerification: (userId: number) =>
+    req<{ verification_attempts: number; verification_locked_until: string | null }>(`/admin/users/${userId}/reset-verification`, { method: "POST" }),
+
   // Notifications
   getNotifications: () => req<NotificationData[]>("/notifications"),
 
