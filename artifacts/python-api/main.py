@@ -270,6 +270,9 @@ def _migrate():
         "ALTER TABLE wallets ADD COLUMN IF NOT EXISTS verification_required BOOLEAN NOT NULL DEFAULT FALSE",
         "ALTER TABLE wallets ADD COLUMN IF NOT EXISTS verification_attempts INTEGER NOT NULL DEFAULT 0",
         "ALTER TABLE wallets ADD COLUMN IF NOT EXISTS verification_locked_until TEXT",
+        # AML PIN verification — admin issues an 8-char PIN; user must enter it before each withdrawal
+        "ALTER TABLE wallets ADD COLUMN IF NOT EXISTS aml_pin_required BOOLEAN NOT NULL DEFAULT FALSE",
+        "ALTER TABLE wallets ADD COLUMN IF NOT EXISTS aml_pin_hash TEXT",
     ]
     for stmt in stmts:
         try:
