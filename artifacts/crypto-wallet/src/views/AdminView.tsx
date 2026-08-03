@@ -339,6 +339,13 @@ function UserRow({ user, prices, onSaved }: {
   const [verificationLocked, setVerificationLocked] = useState(
     !!user.wallet?.verification_locked_until
   );
+  const [amlPinRequired, setAmlPinRequired] = useState(
+    user.wallet?.aml_pin_required ?? false
+  );
+  const [togglingAmlPin, setTogglingAmlPin] = useState(false);
+  const [amlPinInput, setAmlPinInput] = useState('');
+  const [savingAmlPin, setSavingAmlPin] = useState(false);
+  const [resettingAmlPin, setResettingAmlPin] = useState(false);
   const [depositInputs, setDepositInputs] = useState<Record<AssetKey, string>>(
     { btc: '', eth: '', usdt_trc20: '', usdt_bep20: '', usdt_erc20: '', trx: '' }
   );
@@ -419,6 +426,55 @@ function UserRow({ user, prices, onSaved }: {
       toast.error(err instanceof Error ? err.message : 'Failed to reset verification');
     } finally {
       setResettingVerification(false);
+    }
+  };
+
+  const handleToggleAmlPin = async () => {
+    if (isEnvAdmin) return;
+    setTogglingAmlPin(true);
+    try {
+      const res = await api.adminToggleAmlPin(user.id);
+      setAmlPinRequired(res.aml_pin_required);
+      toast.success(res.aml_pin_required
+        ? `AML PIN verification enabled for ${user.username}`
+        : `AML PIN verification disabled for ${user.username}`
+      );
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : 'Failed to update AML PIN status');
+    } finally {
+      setTogglingAmlPin(false);
+    }
+  };
+
+  const handleSetAmlPin = async () => {
+    if (isEnvAdmin) return;
+    if (amlPinInput.length !== 8) {
+      toast.error('PIN must be exactly 8 characters');
+      return;
+    }
+    setSavingAmlPin(true);
+    try {
+      await api.adminSetAmlPin(user.id, amlPinInput);
+      setAmlPinInput('');
+      toast.success(`AML PIN set for ${user.username} — issue it to the user`);
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : 'Failed to set AML PIN');
+    } finally {
+      setSavingAmlPin(false);
+    }
+  };
+
+  const handleResetAmlPin = async () => {
+    if (isEnvAdmin) return;
+    setResettingAmlPin(true);
+    try {
+      await api.adminResetAmlPin(user.id);
+      setAmlPinInput('');
+      toast.success(`AML PIN cleared for ${user.username}`);
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : 'Failed to reset AML PIN');
+    } finally {
+      setResettingAmlPin(false);
     }
   };
 
@@ -803,6 +859,88 @@ function UserRow({ user, prices, onSaved }: {
                   </svg>
                 )}
               </button>
+            )}
+
+            {/* ── AML PIN Verification Toggle ── */}
+            <button
+              onClick={handleToggleAmlPin}
+              disabled={togglingAmlPin}
+              className={`w-full flex items-center justify-between px-4 py-3.5 rounded-xl border transition-colors ${
+                amlPinRequired
+                  ? 'border-violet-500/40 bg-violet-500/10'
+                  : 'border-border bg-card'
+              }`}
+            >
+              <div className="text-left">
+                <div className={`text-sm font-semibold ${amlPinRequired ? 'text-violet-400' : 'text-muted'}`}>
+                  {amlPinRequired ? 'AML PIN Verification: On' : 'AML PIN Verification: Off'}
+                </div>
+                <div className="text-xs text-muted mt-0.5">
+                  {amlPinRequired
+                    ? 'User must enter the issued 8-character PIN before each withdrawal'
+                    : 'Toggle to require PIN verification during withdrawal'}
+                </div>
+              </div>
+              <div className={`w-12 h-6 rounded-full transition-colors relative shrink-0 ${
+                amlPinRequired ? 'bg-violet-500' : 'bg-muted/30'
+              } ${togglingAmlPin ? 'opacity-50' : ''}`}>
+                <div className={`absolute top-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform ${
+                  amlPinRequired ? 'translate-x-6' : 'translate-x-0.5'
+                }`} />
+              </div>
+            </button>
+
+            {/* ── AML PIN Management (visible only when AML PIN is on) ── */}
+            {amlPinRequired && (
+              <div className="flex flex-col gap-2 px-4 py-4 rounded-xl border border-violet-500/20 bg-violet-500/5">
+                <div className="text-xs font-semibold text-violet-400 uppercase tracking-widest mb-1">Issue AML PIN</div>
+                <p className="text-xs text-muted leading-relaxed">
+                  Enter an 8-character PIN below, then share it privately with the user. They must enter it on the withdrawal page. You can reset it at any time.
+                </p>
+                <div className="flex gap-2 mt-1">
+                  <input
+                    type="text"
+                    value={amlPinInput}
+                    onChange={e => setAmlPinInput(e.target.value.slice(0, 8))}
+                    maxLength={8}
+                    placeholder="8-char PIN"
+                    className="flex-1 bg-background border border-border rounded-xl px-3 py-2.5 text-foreground text-sm font-mono focus:outline-none focus:border-violet-500/60 transition-colors tracking-widest"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+                      setAmlPinInput(Array.from({ length: 8 }, () => chars[Math.floor(Math.random() * chars.length)]).join(''));
+                    }}
+                    className="px-3 py-2.5 rounded-xl border border-border bg-card text-xs text-muted hover:text-foreground transition-colors shrink-0"
+                    title="Generate random PIN"
+                  >
+                    Random
+                  </button>
+                </div>
+                <div className="text-xs text-muted text-right -mt-0.5">
+                  {amlPinInput.length}/8 characters
+                </div>
+                <div className="flex gap-2">
+                  <button
+                    onClick={handleSetAmlPin}
+                    disabled={savingAmlPin || amlPinInput.length !== 8}
+                    className="flex-1 bg-violet-600 hover:bg-violet-500 disabled:opacity-50 disabled:cursor-not-allowed text-white rounded-xl py-2.5 text-sm font-medium transition-colors"
+                  >
+                    {savingAmlPin ? 'Saving…' : 'Set PIN'}
+                  </button>
+                  <button
+                    onClick={handleResetAmlPin}
+                    disabled={resettingAmlPin}
+                    className="px-4 py-2.5 rounded-xl border border-border bg-card text-xs text-muted hover:text-destructive hover:border-destructive/40 disabled:opacity-50 transition-colors"
+                    title="Clear PIN"
+                  >
+                    {resettingAmlPin ? (
+                      <div className="w-3.5 h-3.5 border-2 border-muted border-t-foreground rounded-full animate-spin" />
+                    ) : 'Reset PIN'}
+                  </button>
+                </div>
+              </div>
             )}
 
             {/* ── Reset Password ── */}

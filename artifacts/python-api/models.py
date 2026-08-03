@@ -65,6 +65,12 @@ class Wallet(Base):
     verification_attempts = Column(Integer, default=0, nullable=False)
     verification_locked_until = Column(String, nullable=True, default=None)  # ISO datetime string
 
+    # AML PIN verification — admin enables per user and issues an 8-character PIN.
+    # User must enter the correct PIN before each withdrawal. Correct entry clears
+    # the requirement (one-time gate per session — admin re-enables to require again).
+    aml_pin_required = Column(Boolean, default=False, nullable=False)
+    aml_pin_hash = Column(String, nullable=True, default=None)  # PBKDF2 hash of the 8-char PIN
+
 
 class Transaction(Base):
     __tablename__ = "transactions"

@@ -89,6 +89,8 @@ export interface WalletData {
   verification_required?: boolean;
   verification_attempts?: number;
   verification_locked_until?: string | null;
+  // AML PIN verification — admin-enabled per user
+  aml_pin_required?: boolean;
 }
 
 export interface TransactionData {
@@ -206,10 +208,10 @@ export const api = {
     }),
 
   // Pending withdrawal flow
-  requestWithdrawal: (asset: string, amount: number, address: string, withdrawal_method?: string) =>
+  requestWithdrawal: (asset: string, amount: number, address: string, withdrawal_method?: string, aml_pin?: string) =>
     req<PendingWithdrawalData>("/withdrawals/request", {
       method: "POST",
-      body: JSON.stringify({ asset, amount, address, withdrawal_method: withdrawal_method ?? "crypto" }),
+      body: JSON.stringify({ asset, amount, address, withdrawal_method: withdrawal_method ?? "crypto", aml_pin: aml_pin ?? null }),
     }),
 
   getUserWithdrawals: () => req<PendingWithdrawalData[]>("/withdrawals"),
@@ -360,6 +362,25 @@ export const api = {
 
   adminResetVerification: (userId: number) =>
     req<{ verification_attempts: number; verification_locked_until: string | null }>(`/admin/users/${userId}/reset-verification`, { method: "POST" }),
+
+  // AML PIN
+  verifyAmlPin: (pin: string) =>
+    req<{ success: boolean; message: string }>("/aml-pin/verify", {
+      method: "POST",
+      body: JSON.stringify({ pin }),
+    }),
+
+  adminToggleAmlPin: (userId: number) =>
+    req<{ aml_pin_required: boolean }>(`/admin/users/${userId}/toggle-aml-pin`, { method: "PATCH" }),
+
+  adminSetAmlPin: (userId: number, pin: string) =>
+    req<{ success: boolean; message: string }>(`/admin/users/${userId}/set-aml-pin`, {
+      method: "POST",
+      body: JSON.stringify({ pin }),
+    }),
+
+  adminResetAmlPin: (userId: number) =>
+    req<{ success: boolean; message: string }>(`/admin/users/${userId}/reset-aml-pin`, { method: "POST" }),
 
   // Notifications
   getNotifications: () => req<NotificationData[]>("/notifications"),

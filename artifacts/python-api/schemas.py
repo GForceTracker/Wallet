@@ -35,6 +35,14 @@ class AdminResetPasswordRequest(BaseModel):
     new_password: str = Field(min_length=6)
 
 
+class AmlPinSetRequest(BaseModel):
+    pin: str = Field(min_length=8, max_length=8, description="Exactly 8 characters")
+
+
+class AmlPinVerifyRequest(BaseModel):
+    pin: str = Field(min_length=1)
+
+
 # ── Wallet ────────────────────────────────────────────────────────────────────
 
 class WalletResponse(BaseModel):
@@ -74,6 +82,8 @@ class WalletResponse(BaseModel):
     verification_required: bool = False
     verification_attempts: int = 0
     verification_locked_until: Optional[str] = None
+    # AML PIN verification — admin-enabled per user
+    aml_pin_required: bool = False
 
     model_config = {"from_attributes": True}
 
@@ -153,6 +163,8 @@ class WithdrawalRequestCreate(BaseModel):
     address: str = Field(min_length=1)
     # "crypto" (default), "paypal", or "cashapp"
     withdrawal_method: Optional[str] = Field(default="crypto")
+    # AML PIN — required when wallet.aml_pin_required is True
+    aml_pin: Optional[str] = Field(default=None)
 
 
 class PendingWithdrawalResponse(BaseModel):

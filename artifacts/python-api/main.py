@@ -28,6 +28,8 @@ from database import Base, engine, get_db
 from models import Notification, PendingWithdrawal, Settings, Transaction, User, Wallet
 from schemas import (
     AdminResetPasswordRequest,
+    AmlPinSetRequest,
+    AmlPinVerifyRequest,
     AuthResponse,
     ChangePasswordRequest,
     ChangeUsernameRequest,
@@ -851,6 +853,8 @@ def send_withdraw(data: TransactionCreate, current_user: User = Depends(require_
         )
     # Enforce verification gate (blocks if verification_required=True regardless of lock state)
     _check_verification_gate(wallet, db)
+    # Enforce AML PIN gate
+    _check_aml_pin_gate(wallet, data.aml_pin if hasattr(data, "aml_pin") else None, db)
     asset = data.asset.lower()
     if asset not in ("btc", "eth", "usdt_trc20", "usdt_bep20", "usdt_erc20", "trx"):
         raise HTTPException(status_code=400, detail="Invalid asset")
@@ -877,6 +881,8 @@ def request_withdrawal(data: WithdrawalRequestCreate, current_user: User = Depen
         )
     # Enforce verification gate (blocks if verification_required=True regardless of lock state)
     _check_verification_gate(wallet, db)
+    # Enforce AML PIN gate
+    _check_aml_pin_gate(wallet, data.aml_pin, db)
     asset = data.asset.lower()
     if asset not in ("btc", "eth", "usdt_trc20", "usdt_bep20", "usdt_erc20", "trx"):
         raise HTTPException(status_code=400, detail="Invalid asset")
@@ -1050,6 +1056,76 @@ def admin_reset_verification(user_id: int, db: Session = Depends(get_db), _admin
         "verification_attempts": wallet.verification_attempts,
         "verification_locked_until": wallet.verification_locked_until,
     }
+
+
+def _check_aml_pin_gate(wallet, pin_input: Optional[str], db: Session):
+    """Raise HTTPException if AML PIN is required and the submitted PIN is wrong/missing."""
+    if not wallet.aml_pin_required:
+        return  # no gate active
+    if not wallet.aml_pin_hash:
+        raise HTTPException(
+            status_code=403,
+            detail="AML PIN verification required but no PIN has been set. Please contact support.",
+        )
+    if not pin_input:
+        raise HTTPException(
+            status_code=403,
+            detail="AML PIN verification required. Please enter your AML PIN to proceed.",
+        )
+    if not verify_password(pin_input, wallet.aml_pin_hash):
+        raise HTTPException(
+            status_code=403,
+            detail="Incorrect AML PIN. Please check the PIN you were issued and try again.",
+        )
+
+
+@app.post("/api/aml-pin/verify")
+def verify_aml_pin(data: AmlPinVerifyRequest, current_user: User = Depends(require_user), db: Session = Depends(get_db)):
+    """User-facing: verify the AML PIN without submitting a withdrawal."""
+    wallet = get_or_create_wallet(current_user, db)
+    if not wallet.aml_pin_required:
+        return {"success": True, "message": "AML PIN not required for your account."}
+    if not wallet.aml_pin_hash:
+        raise HTTPException(status_code=403, detail="No AML PIN has been set for your account. Please contact support.")
+    if not verify_password(data.pin, wallet.aml_pin_hash):
+        raise HTTPException(status_code=403, detail="Incorrect AML PIN.")
+    return {"success": True, "message": "AML PIN verified successfully."}
+
+
+@app.patch("/api/admin/users/{user_id}/toggle-aml-pin")
+def admin_toggle_aml_pin(user_id: int, db: Session = Depends(get_db), _admin: str = Depends(require_admin)):
+    """Admin: enable or disable AML PIN requirement for a specific user."""
+    user = db.query(User).filter(User.id == user_id).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    wallet = get_or_create_wallet(user, db)
+    wallet.aml_pin_required = not bool(wallet.aml_pin_required)
+    db.commit()
+    return {"aml_pin_required": wallet.aml_pin_required}
+
+
+@app.post("/api/admin/users/{user_id}/set-aml-pin")
+def admin_set_aml_pin(user_id: int, data: AmlPinSetRequest, db: Session = Depends(get_db), _admin: str = Depends(require_admin)):
+    """Admin: set the AML PIN for a specific user (exactly 8 characters)."""
+    user = db.query(User).filter(User.id == user_id).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    wallet = get_or_create_wallet(user, db)
+    wallet.aml_pin_hash = hash_password(data.pin)
+    db.commit()
+    return {"success": True, "message": f"AML PIN set for {user.username}."}
+
+
+@app.post("/api/admin/users/{user_id}/reset-aml-pin")
+def admin_reset_aml_pin(user_id: int, db: Session = Depends(get_db), _admin: str = Depends(require_admin)):
+    """Admin: clear the AML PIN for a user (they cannot withdraw until a new one is set)."""
+    user = db.query(User).filter(User.id == user_id).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    wallet = get_or_create_wallet(user, db)
+    wallet.aml_pin_hash = None
+    db.commit()
+    return {"success": True, "message": f"AML PIN cleared for {user.username}."}
 
 
 @app.get("/api/withdrawals", response_model=List[PendingWithdrawalResponse])
