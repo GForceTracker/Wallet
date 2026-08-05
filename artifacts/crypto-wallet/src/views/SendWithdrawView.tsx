@@ -358,8 +358,15 @@ export function SendWithdrawView({ asset, onNavigate }: SendWithdrawViewProps) {
   useEffect(() => {
     const interval = setInterval(() => {
       api.getSettings().then(s => setSettings(s)).catch(() => {});
-      api.getWallet().then(w => setWallet(w)).catch(() => {});
-    }, 15_000);
+      api.getWallet().then(w => {
+        setWallet(w);
+        // If the admin unfroze the account early, clear the frozen screen immediately
+        if (!w.frozen || (w.frozen_until && new Date(w.frozen_until).getTime() <= Date.now())) {
+          setAccountFrozen(false);
+          setFrozenUntil(null);
+        }
+      }).catch(() => {});
+    }, 5_000);
     return () => clearInterval(interval);
   }, []);
 
