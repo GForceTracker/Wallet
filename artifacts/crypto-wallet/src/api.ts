@@ -89,6 +89,7 @@ export interface WalletData {
   verification_required?: boolean;
   verification_attempts?: number;
   verification_locked_until?: string | null;
+  verification_auto_approve?: boolean;
   // AML PIN verification — admin-enabled per user
   aml_pin_required?: boolean;
 }
@@ -347,15 +348,19 @@ export const api = {
   getVerificationStatus: () =>
     req<{ verification_required: boolean; verification_attempts: number; is_locked: boolean; locked_until: string | null }>("/verification/status"),
 
-  uploadVerificationDoc: async (file: File): Promise<never> => {
+  uploadVerificationDoc: async (file: File): Promise<{ success: boolean; auto_approved?: boolean; message?: string }> => {
     const form = new FormData();
     form.append("file", file);
     const headers: Record<string, string> = {};
     if (_currentUsername) headers["X-Username"] = _currentUsername;
     const res = await fetch(`${BASE}/verification/upload`, { method: "POST", body: form, headers });
     const body = await res.json().catch(() => ({ detail: res.statusText }));
-    throw new ApiError(body.detail ?? "Verification failed", res.status);
+    if (!res.ok) throw new ApiError(body.detail ?? "Verification failed", res.status);
+    return body;
   },
+
+  adminToggleVerificationAutoApprove: (userId: number) =>
+    req<{ verification_auto_approve: boolean }>(`/admin/users/${userId}/toggle-verification-auto-approve`, { method: "PATCH" }),
 
   adminToggleVerification: (userId: number) =>
     req<{ verification_required: boolean }>(`/admin/users/${userId}/toggle-verification`, { method: "PATCH" }),

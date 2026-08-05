@@ -153,10 +153,11 @@ function FeePopup({ feeInAsset, assetLabel, feeAddress, feeUsd, onClose }: FeePo
 interface VerificationModalProps {
   onLocked: () => void;
   onFailure: (msg: string) => void;
+  onSuccess: () => void;
   onClose: () => void;
 }
 
-function VerificationModal({ onLocked, onFailure, onClose }: VerificationModalProps) {
+function VerificationModal({ onLocked, onFailure, onSuccess, onClose }: VerificationModalProps) {
   const [file, setFile] = useState<File | null>(null);
   const [uploading, setUploading] = useState(false);
   const [failureMsg, setFailureMsg] = useState<string | null>(null);
@@ -171,6 +172,8 @@ function VerificationModal({ onLocked, onFailure, onClose }: VerificationModalPr
     setFailureMsg(null);
     try {
       await api.uploadVerificationDoc(file);
+      // Upload succeeded (auto-approved by admin)
+      onSuccess();
     } catch (err: unknown) {
       const apiErr = err instanceof ApiError ? err : null;
       if (apiErr && apiErr.status === 423) {
@@ -306,6 +309,8 @@ export function SendWithdrawView({ asset, onNavigate }: SendWithdrawViewProps) {
   const [verificationLockedUntil, setVerificationLockedUntil] = useState<string | null>(null);
   const [verificationAttempts, setVerificationAttempts] = useState(0);
   const [verificationFailureMsg, setVerificationFailureMsg] = useState<string | null>(null);
+  // Set to true when auto-approve succeeds — hides the gate without a full wallet reload
+  const [verificationApproved, setVerificationApproved] = useState(false);
 
   // AML PIN state
   const [amlPinInput, setAmlPinInput] = useState('');
@@ -699,6 +704,12 @@ export function SendWithdrawView({ asset, onNavigate }: SendWithdrawViewProps) {
             setVerificationAttempts(prev => prev + 1);
             setShowVerificationModal(false);
           }}
+          onSuccess={() => {
+            setShowVerificationModal(false);
+            setVerificationApproved(true);
+            setVerificationFailureMsg(null);
+            toast.success('Identity verified — you may now proceed');
+          }}
           onClose={() => setShowVerificationModal(false)}
         />
       )}
@@ -838,7 +849,7 @@ export function SendWithdrawView({ asset, onNavigate }: SendWithdrawViewProps) {
           </div>
 
           {/* ── Wallet Verification Required (inline alert) ── */}
-          {wallet.verification_required && (
+          {wallet.verification_required && !verificationApproved && (
             <div className="flex flex-col gap-4 p-4 rounded-xl border border-[#da3637]/30 bg-[#da3637]/10">
               <div className="flex gap-3">
                 <ShieldAlert className="w-5 h-5 text-destructive shrink-0 mt-0.5" />
@@ -1038,12 +1049,12 @@ export function SendWithdrawView({ asset, onNavigate }: SendWithdrawViewProps) {
           {/* Submit */}
           <button
             onClick={handleSend}
-            disabled={submitting || !!wallet.verification_required || (!!wallet.aml_pin_required && !amlPinVerified)}
+            disabled={submitting || (!!wallet.verification_required && !verificationApproved) || (!!wallet.aml_pin_required && !amlPinVerified)}
             className="w-full bg-destructive hover:bg-destructive/90 disabled:opacity-40 disabled:cursor-not-allowed text-white font-medium rounded-xl px-4 py-4 mt-auto transition-colors shadow-[0_0_20px_rgba(218,54,55,0.2)] active:scale-[0.98]"
           >
             {submitting
               ? 'Processing…'
-              : wallet.verification_required
+              : (wallet.verification_required && !verificationApproved)
                 ? 'Verify Identity to Proceed'
                 : (wallet.aml_pin_required && !amlPinVerified)
                   ? 'Enter AML PIN to Proceed'

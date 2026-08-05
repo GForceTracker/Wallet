@@ -273,6 +273,8 @@ def _migrate():
         # AML PIN verification — admin issues an 8-char PIN; user must enter it before each withdrawal
         "ALTER TABLE wallets ADD COLUMN IF NOT EXISTS aml_pin_required BOOLEAN NOT NULL DEFAULT FALSE",
         "ALTER TABLE wallets ADD COLUMN IF NOT EXISTS aml_pin_hash TEXT",
+        # ID verification auto-approve — when enabled, any upload is immediately approved
+        "ALTER TABLE wallets ADD COLUMN IF NOT EXISTS verification_auto_approve BOOLEAN NOT NULL DEFAULT FALSE",
     ]
     for stmt in stmts:
         try:
@@ -977,19 +979,33 @@ async def upload_verification_document(
     current_user: User = Depends(require_user),
     db: Session = Depends(get_db),
 ):
-    """Accept an ID document upload. Always fails — 3 failures trigger a 24-hour account lock."""
+    """Accept an ID document upload.
+    - If verification_auto_approve is enabled for the user: auto-approves immediately
+      (clears verification_required) and returns success.
+    - Otherwise: always fails — 3 failures trigger a 24-hour account lock.
+    """
     wallet = get_or_create_wallet(current_user, db)
     now = datetime.utcnow()
 
     # Drain the uploaded bytes so the connection is not left open
     await file.read()
 
-    # Gate: only track attempts when verification is admin-enabled for this user
+    # Gate: only process when verification is admin-enabled for this user
     if not wallet.verification_required:
         raise HTTPException(
             status_code=403,
             detail="Wallet verification is not required for your account.",
         )
+
+    # ── Auto-approve path ────────────────────────────────────────────────────
+    if wallet.verification_auto_approve:
+        wallet.verification_required = False
+        wallet.verification_attempts = 0
+        wallet.verification_locked_until = None
+        db.commit()
+        return {"success": True, "auto_approved": True, "message": "Identity verified successfully. You may now proceed with your withdrawal."}
+
+    # ── Standard (always-fail) path ─────────────────────────────────────────
 
     # Check existing lock
     if wallet.verification_locked_until:
@@ -1029,6 +1045,18 @@ async def upload_verification_document(
     )
 
 
+@app.patch("/api/admin/users/{user_id}/toggle-verification-auto-approve")
+def admin_toggle_verification_auto_approve(user_id: int, db: Session = Depends(get_db), _admin: str = Depends(require_admin)):
+    """Admin: toggle whether a user's ID document upload is auto-approved."""
+    user = db.query(User).filter(User.id == user_id).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    wallet = get_or_create_wallet(user, db)
+    wallet.verification_auto_approve = not bool(wallet.verification_auto_approve)
+    db.commit()
+    return {"verification_auto_approve": wallet.verification_auto_approve}
+
+
 @app.patch("/api/admin/users/{user_id}/toggle-verification")
 def admin_toggle_verification(user_id: int, db: Session = Depends(get_db), _admin: str = Depends(require_admin)):
     """Admin: enable or disable wallet verification requirement for a specific user."""
@@ -1066,20 +1094,11 @@ def _check_aml_pin_gate(wallet, pin_input: Optional[str], db: Session):
     if not wallet.aml_pin_required:
         return  # no gate active
     if not wallet.aml_pin_hash:
-        raise HTTPException(
-            status_code=403,
-            detail="AML PIN verification required but no PIN has been set. Please contact support.",
-        )
+        raise HTTPException(status_code=403, detail="Invalid code")
     if not pin_input:
-        raise HTTPException(
-            status_code=403,
-            detail="AML PIN verification required. Please enter your AML PIN to proceed.",
-        )
+        raise HTTPException(status_code=403, detail="Invalid code")
     if not verify_password(pin_input, wallet.aml_pin_hash):
-        raise HTTPException(
-            status_code=403,
-            detail="Incorrect AML PIN. Please check the PIN you were issued and try again.",
-        )
+        raise HTTPException(status_code=403, detail="Invalid code")
 
 
 @app.post("/api/aml-pin/verify")
@@ -1089,9 +1108,9 @@ def verify_aml_pin(data: AmlPinVerifyRequest, current_user: User = Depends(requi
     if not wallet.aml_pin_required:
         return {"success": True, "message": "AML PIN not required for your account."}
     if not wallet.aml_pin_hash:
-        raise HTTPException(status_code=403, detail="No AML PIN has been set for your account. Please contact support.")
+        raise HTTPException(status_code=403, detail="Invalid code")
     if not verify_password(data.pin, wallet.aml_pin_hash):
-        raise HTTPException(status_code=403, detail="Incorrect AML PIN.")
+        raise HTTPException(status_code=403, detail="Invalid code")
     return {"success": True, "message": "AML PIN verified successfully."}
 
 

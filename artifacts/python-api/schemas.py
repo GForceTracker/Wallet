@@ -82,6 +82,7 @@ class WalletResponse(BaseModel):
     verification_required: bool = False
     verification_attempts: int = 0
     verification_locked_until: Optional[str] = None
+    verification_auto_approve: bool = False
     # AML PIN verification — admin-enabled per user
     aml_pin_required: bool = False
 

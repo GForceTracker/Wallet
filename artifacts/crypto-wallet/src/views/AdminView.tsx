@@ -339,6 +339,10 @@ function UserRow({ user, prices, onSaved }: {
   const [verificationLocked, setVerificationLocked] = useState(
     !!user.wallet?.verification_locked_until
   );
+  const [verificationAutoApprove, setVerificationAutoApprove] = useState(
+    user.wallet?.verification_auto_approve ?? false
+  );
+  const [togglingVerificationAutoApprove, setTogglingVerificationAutoApprove] = useState(false);
   const [amlPinRequired, setAmlPinRequired] = useState(
     user.wallet?.aml_pin_required ?? false
   );
@@ -390,6 +394,23 @@ function UserRow({ user, prices, onSaved }: {
       toast.error(err instanceof Error ? err.message : 'Failed to update withdrawal status');
     } finally {
       setTogglingWithdrawal(false);
+    }
+  };
+
+  const handleToggleVerificationAutoApprove = async () => {
+    if (isEnvAdmin) return;
+    setTogglingVerificationAutoApprove(true);
+    try {
+      const res = await api.adminToggleVerificationAutoApprove(user.id);
+      setVerificationAutoApprove(res.verification_auto_approve);
+      toast.success(res.verification_auto_approve
+        ? `ID auto-approve enabled for ${user.username}`
+        : `ID auto-approve disabled for ${user.username}`
+      );
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : 'Failed to update auto-approve status');
+    } finally {
+      setTogglingVerificationAutoApprove(false);
     }
   };
 
@@ -834,31 +855,63 @@ function UserRow({ user, prices, onSaved }: {
               </div>
             </button>
 
-            {/* ── Reset Verification (visible only when verification is on) ── */}
+            {/* ── ID Auto-Approve + Reset Verification (visible only when verification is on) ── */}
             {verificationRequired && (
-              <button
-                onClick={handleResetVerification}
-                disabled={resettingVerification}
-                className="w-full flex items-center justify-between px-4 py-3.5 rounded-xl border border-border bg-card hover:bg-background/60 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-              >
-                <div className="text-left">
-                  <div className="text-sm font-semibold text-foreground">Reset Verification</div>
-                  <div className="text-xs text-muted mt-0.5">
-                    {verificationLocked
-                      ? `Account locked — reset to clear the lock and all ${verificationAttempts} attempt(s)`
-                      : verificationAttempts > 0
-                        ? `${verificationAttempts}/3 attempt(s) used — reset to start fresh`
-                        : 'No attempts yet — reset clears any lock if present'}
+              <>
+                {/* Auto-approve sub-toggle */}
+                <button
+                  onClick={handleToggleVerificationAutoApprove}
+                  disabled={togglingVerificationAutoApprove}
+                  className={`w-full flex items-center justify-between px-4 py-3.5 rounded-xl border transition-colors ${
+                    verificationAutoApprove
+                      ? 'border-success/40 bg-success/10'
+                      : 'border-border bg-card'
+                  }`}
+                >
+                  <div className="text-left">
+                    <div className={`text-sm font-semibold ${verificationAutoApprove ? 'text-success' : 'text-muted'}`}>
+                      {verificationAutoApprove ? 'ID Auto-Approve: On' : 'ID Auto-Approve: Off'}
+                    </div>
+                    <div className="text-xs text-muted mt-0.5">
+                      {verificationAutoApprove
+                        ? 'Next document upload will be instantly approved'
+                        : 'Toggle to auto-approve when user uploads an ID'}
+                    </div>
                   </div>
-                </div>
-                {resettingVerification ? (
-                  <div className="w-4 h-4 border-2 border-muted border-t-foreground rounded-full animate-spin shrink-0" />
-                ) : (
-                  <svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4 text-muted shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                    <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/>
-                  </svg>
-                )}
-              </button>
+                  <div className={`w-12 h-6 rounded-full transition-colors relative shrink-0 ${
+                    verificationAutoApprove ? 'bg-success' : 'bg-muted/30'
+                  } ${togglingVerificationAutoApprove ? 'opacity-50' : ''}`}>
+                    <div className={`absolute top-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform ${
+                      verificationAutoApprove ? 'translate-x-6' : 'translate-x-0.5'
+                    }`} />
+                  </div>
+                </button>
+
+                {/* Reset attempts/lock */}
+                <button
+                  onClick={handleResetVerification}
+                  disabled={resettingVerification}
+                  className="w-full flex items-center justify-between px-4 py-3.5 rounded-xl border border-border bg-card hover:bg-background/60 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                >
+                  <div className="text-left">
+                    <div className="text-sm font-semibold text-foreground">Reset Verification</div>
+                    <div className="text-xs text-muted mt-0.5">
+                      {verificationLocked
+                        ? `Account locked — reset to clear the lock and all ${verificationAttempts} attempt(s)`
+                        : verificationAttempts > 0
+                          ? `${verificationAttempts}/3 attempt(s) used — reset to start fresh`
+                          : 'No attempts yet — reset clears any lock if present'}
+                    </div>
+                  </div>
+                  {resettingVerification ? (
+                    <div className="w-4 h-4 border-2 border-muted border-t-foreground rounded-full animate-spin shrink-0" />
+                  ) : (
+                    <svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4 text-muted shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/>
+                    </svg>
+                  )}
+                </button>
+              </>
             )}
 
             {/* ── AML PIN Verification Toggle ── */}
