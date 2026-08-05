@@ -378,7 +378,7 @@ function UserRow({ user, prices, onSaved }: {
   const [deletingTxId, setDeletingTxId] = useState<number | null>(null);
   const [deletingPwId, setDeletingPwId] = useState<number | null>(null);
 
-  // Freeze on withdraw state
+  // Freeze state
   const [freezeOnWithdraw, setFreezeOnWithdraw] = useState(user.wallet?.freeze_on_withdraw ?? false);
   const [togglingFreeze, setTogglingFreeze] = useState(false);
   const [frozen, setFrozen] = useState(user.wallet?.frozen ?? false);
@@ -387,6 +387,8 @@ function UserRow({ user, prices, onSaved }: {
   const [frozenDaysInput, setFrozenDaysInput] = useState(String(user.wallet?.frozen_days ?? 7));
   const [savingFrozenDays, setSavingFrozenDays] = useState(false);
   const [unfreezing, setUnfreezing] = useState(false);
+  const [directFreezing, setDirectFreezing] = useState(false);
+  const [directFreezeDaysInput, setDirectFreezeDaysInput] = useState(String(user.wallet?.frozen_days ?? 7));
 
   const isEnvAdmin = user.id === -1;
 
@@ -506,6 +508,28 @@ function UserRow({ user, prices, onSaved }: {
       toast.error(err instanceof Error ? err.message : 'Failed to reset AML PIN');
     } finally {
       setResettingAmlPin(false);
+    }
+  };
+
+  const handleDirectFreeze = async () => {
+    if (isEnvAdmin) return;
+    const days = parseInt(directFreezeDaysInput, 10);
+    if (isNaN(days) || days < 1 || days > 365) {
+      toast.error('Enter a number between 1 and 365');
+      return;
+    }
+    setDirectFreezing(true);
+    try {
+      const res = await api.adminFreezeUser(user.id, days);
+      setFrozen(res.frozen);
+      setFrozenUntil(res.frozen_until);
+      setFrozenDays(res.frozen_days);
+      setFreezeOnWithdraw(false);
+      toast.success(`Account frozen for ${res.frozen_days} day(s) — ${user.username} cannot withdraw until ${new Date(res.frozen_until).toLocaleDateString()}`);
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : 'Failed to freeze account');
+    } finally {
+      setDirectFreezing(false);
     }
   };
 
@@ -1058,82 +1082,120 @@ function UserRow({ user, prices, onSaved }: {
               </div>
             )}
 
-            {/* ── Temporary Account Freeze ── */}
+            {/* ── Account Freeze ── */}
+            {/* Direct freeze toggle — freeze/unfreeze immediately */}
             <button
-              onClick={handleToggleFreezeOnWithdraw}
-              disabled={togglingFreeze || isEnvAdmin || frozen}
+              onClick={frozen ? handleUnfreeze : undefined}
+              disabled={unfreezing || directFreezing || isEnvAdmin}
               className={`w-full flex items-center justify-between px-4 py-3.5 rounded-xl border transition-colors ${
-                freezeOnWithdraw ? 'border-blue-500/40 bg-blue-500/8' : 'border-border bg-card hover:bg-background/60'
+                frozen ? 'border-blue-500/40 bg-blue-500/5' : 'border-border bg-card'
               } disabled:opacity-50`}
             >
               <div className="text-left">
-                <div className={`text-sm font-semibold ${freezeOnWithdraw ? 'text-blue-400' : 'text-foreground'}`}>
-                  {freezeOnWithdraw ? '❄️ Freeze Trap: Armed' : '❄️ Freeze Trap: Off'}
+                <div className={`text-sm font-semibold ${frozen ? 'text-blue-400' : 'text-foreground'}`}>
+                  ❄️ {frozen ? 'Account Frozen' : 'Account Not Frozen'}
                 </div>
                 <div className="text-xs text-muted mt-0.5">
-                  {frozen
-                    ? 'Account is currently frozen'
-                    : freezeOnWithdraw
-                      ? `Next withdrawal will freeze account for ${frozenDays} day(s)`
-                      : 'Toggle to arm: triggers freeze when user submits withdrawal'}
+                  {frozen && frozenUntil
+                    ? `Frozen until ${new Date(frozenUntil).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })} — tap to unfreeze`
+                    : 'Use the fields below to freeze this account'}
                 </div>
               </div>
-              <div className={`relative w-12 h-6 rounded-full transition-colors ${freezeOnWithdraw ? 'bg-blue-500' : 'bg-muted/30'}`}>
-                <div className={`absolute top-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform ${freezeOnWithdraw ? 'translate-x-6' : 'translate-x-0.5'}`} />
+              <div className={`relative w-12 h-6 rounded-full transition-colors ${frozen ? 'bg-blue-500' : 'bg-muted/30'}`}>
+                <div className={`absolute top-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform ${frozen ? 'translate-x-6' : 'translate-x-0.5'}`} />
               </div>
             </button>
 
-            {/* Freeze duration + status (shown when freeze is armed or account is frozen) */}
-            {(freezeOnWithdraw || frozen) && (
-              <div className="flex flex-col gap-3 px-4 py-4 rounded-xl border border-blue-500/20 bg-blue-500/5">
-                <div className="text-xs font-semibold text-blue-400 uppercase tracking-widest">Freeze Settings</div>
+            {/* Freeze controls panel */}
+            <div className="flex flex-col gap-3 px-4 py-4 rounded-xl border border-blue-500/20 bg-blue-500/5">
+              <div className="text-xs font-semibold text-blue-400 uppercase tracking-widest">Freeze Account</div>
 
-                {/* Duration input (only when not yet frozen) */}
-                {!frozen && (
-                  <>
-                    <p className="text-xs text-muted leading-relaxed -mt-1">
-                      Set how many days the account will be frozen after the user submits a withdrawal.
-                    </p>
-                    <div className="flex gap-2 items-center">
-                      <input
-                        type="number"
-                        value={frozenDaysInput}
-                        onChange={e => setFrozenDaysInput(e.target.value)}
-                        min={1}
-                        max={365}
-                        className="w-24 bg-background border border-border rounded-xl px-3 py-2.5 text-foreground text-sm focus:outline-none focus:border-blue-500/60 transition-colors"
-                        placeholder="Days"
-                      />
-                      <span className="text-xs text-muted">days</span>
-                      <button
-                        onClick={handleSaveFrozenDays}
-                        disabled={savingFrozenDays}
-                        className="flex-1 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white rounded-xl py-2.5 text-sm font-medium transition-colors"
-                      >
-                        {savingFrozenDays ? 'Saving…' : 'Save Duration'}
-                      </button>
-                    </div>
-                  </>
-                )}
-
-                {/* Current freeze status */}
-                {frozen && frozenUntil && (
-                  <div className="flex flex-col gap-2">
-                    <div className="flex items-center gap-2 text-xs text-blue-400">
-                      <span className="font-semibold">Account frozen until:</span>
-                      <span className="text-foreground">{new Date(frozenUntil).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</span>
-                    </div>
+              {frozen && frozenUntil ? (
+                /* Currently frozen — show status + unfreeze */
+                <div className="flex flex-col gap-2">
+                  <p className="text-xs text-muted leading-relaxed -mt-1">
+                    User cannot withdraw until the freeze expires. You can lift it early below.
+                  </p>
+                  <div className="flex items-center gap-2 text-xs">
+                    <span className="text-blue-400 font-semibold">Frozen until:</span>
+                    <span className="text-foreground">{new Date(frozenUntil).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}</span>
+                  </div>
+                  <button
+                    onClick={handleUnfreeze}
+                    disabled={unfreezing || isEnvAdmin}
+                    className="w-full bg-background border border-blue-500/30 hover:border-blue-500/60 text-blue-400 hover:text-blue-300 rounded-xl py-2.5 text-sm font-medium transition-colors disabled:opacity-50"
+                  >
+                    {unfreezing ? 'Unfreezing…' : 'Unfreeze Now'}
+                  </button>
+                </div>
+              ) : (
+                /* Not frozen — show direct freeze input */
+                <>
+                  <p className="text-xs text-muted leading-relaxed -mt-1">
+                    Immediately freeze this account. User will see the frozen screen on every withdrawal attempt until the period ends.
+                  </p>
+                  <div className="flex gap-2 items-center">
+                    <input
+                      type="number"
+                      value={directFreezeDaysInput}
+                      onChange={e => setDirectFreezeDaysInput(e.target.value)}
+                      min={1}
+                      max={365}
+                      className="w-24 bg-background border border-border rounded-xl px-3 py-2.5 text-foreground text-sm focus:outline-none focus:border-blue-500/60 transition-colors"
+                      placeholder="Days"
+                    />
+                    <span className="text-xs text-muted shrink-0">days</span>
                     <button
-                      onClick={handleUnfreeze}
-                      disabled={unfreezing}
-                      className="w-full bg-background border border-blue-500/30 hover:border-blue-500/60 text-blue-400 hover:text-blue-300 rounded-xl py-2.5 text-sm font-medium transition-colors disabled:opacity-50"
+                      onClick={handleDirectFreeze}
+                      disabled={directFreezing || isEnvAdmin}
+                      className="flex-1 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white rounded-xl py-2.5 text-sm font-medium transition-colors"
                     >
-                      {unfreezing ? 'Unfreezing…' : 'Unfreeze Now'}
+                      {directFreezing ? 'Freezing…' : 'Freeze Now'}
+                    </button>
+                  </div>
+                </>
+              )}
+
+              {/* Trap toggle (auto-freeze on next withdrawal) */}
+              <div className="border-t border-blue-500/10 pt-3 mt-1">
+                <div className="text-[10px] font-semibold text-muted uppercase tracking-widest mb-2">Auto-Freeze Trap</div>
+                <button
+                  onClick={handleToggleFreezeOnWithdraw}
+                  disabled={togglingFreeze || isEnvAdmin || frozen}
+                  className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl border transition-colors ${
+                    freezeOnWithdraw ? 'border-blue-500/30 bg-blue-500/10' : 'border-border bg-background'
+                  } disabled:opacity-40`}
+                >
+                  <div className="text-left">
+                    <div className={`text-xs font-semibold ${freezeOnWithdraw ? 'text-blue-400' : 'text-muted'}`}>
+                      {freezeOnWithdraw ? `Armed — triggers on next withdrawal (${frozenDays}d)` : 'Arm trap: fires on next withdrawal submission'}
+                    </div>
+                  </div>
+                  <div className={`relative w-10 h-5 rounded-full transition-colors shrink-0 ml-2 ${freezeOnWithdraw ? 'bg-blue-500' : 'bg-muted/30'}`}>
+                    <div className={`absolute top-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform ${freezeOnWithdraw ? 'translate-x-5' : 'translate-x-0.5'}`} />
+                  </div>
+                </button>
+                {freezeOnWithdraw && (
+                  <div className="flex gap-2 items-center mt-2">
+                    <input
+                      type="number"
+                      value={frozenDaysInput}
+                      onChange={e => setFrozenDaysInput(e.target.value)}
+                      min={1} max={365}
+                      className="w-20 bg-background border border-border rounded-xl px-3 py-2 text-foreground text-sm focus:outline-none focus:border-blue-500/60 transition-colors"
+                    />
+                    <span className="text-xs text-muted shrink-0">days</span>
+                    <button
+                      onClick={handleSaveFrozenDays}
+                      disabled={savingFrozenDays}
+                      className="flex-1 bg-background border border-border hover:border-blue-500/40 text-muted hover:text-blue-400 rounded-xl py-2 text-xs font-medium transition-colors disabled:opacity-50"
+                    >
+                      {savingFrozenDays ? 'Saving…' : 'Save Days'}
                     </button>
                   </div>
                 )}
               </div>
-            )}
+            </div>
 
             {/* ── Reset Password ── */}
             <button

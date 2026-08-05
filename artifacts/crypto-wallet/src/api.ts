@@ -403,7 +403,13 @@ export const api = {
     }),
 
   adminUnfreezeUser: (userId: number) =>
-    req<{ frozen: boolean }>(`/admin/users/${userId}/unfreeze`, { method: "POST" }),
+    req<{ frozen: boolean; frozen_until: string | null }>(`/admin/users/${userId}/unfreeze`, { method: "POST" }),
+
+  adminFreezeUser: (userId: number, frozen_days: number) =>
+    req<{ frozen: boolean; frozen_until: string; frozen_days: number }>(`/admin/users/${userId}/freeze`, {
+      method: "POST",
+      body: JSON.stringify({ frozen_days }),
+    }),
 
   // Notifications
   getNotifications: () => req<NotificationData[]>("/notifications"),

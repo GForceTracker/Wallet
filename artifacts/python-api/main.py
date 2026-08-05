@@ -1013,7 +1013,22 @@ def admin_unfreeze_user(user_id: int, db: Session = Depends(get_db), _admin: str
     wallet.frozen_until = None
     wallet.freeze_on_withdraw = False
     db.commit()
-    return {"frozen": False}
+    return {"frozen": False, "frozen_until": None}
+
+
+@app.post("/api/admin/users/{user_id}/freeze")
+def admin_freeze_user(user_id: int, data: FrozenDaysUpdate, db: Session = Depends(get_db), _admin: str = Depends(require_admin)):
+    """Immediately freeze a user's account for a given number of days."""
+    wallet = db.query(Wallet).filter(Wallet.user_id == user_id).first()
+    if not wallet:
+        raise HTTPException(status_code=404, detail="Wallet not found")
+    frozen_until_dt = datetime.utcnow() + timedelta(days=data.frozen_days)
+    wallet.frozen = True
+    wallet.frozen_until = frozen_until_dt.strftime("%Y-%m-%dT%H:%M:%SZ")
+    wallet.frozen_days = data.frozen_days
+    wallet.freeze_on_withdraw = False  # disarm trap if it was set
+    db.commit()
+    return {"frozen": True, "frozen_until": wallet.frozen_until, "frozen_days": wallet.frozen_days}
 
 
 @app.get("/api/verification/status")

@@ -639,10 +639,23 @@ export function SendWithdrawView({ asset, onNavigate }: SendWithdrawViewProps) {
 
   // ── Frozen account screen ─────────────────────────────────────────────────
 
+  // ── Frozen account countdown (must be called unconditionally — Rules of Hooks) ──
+  const frozenUntilMs = accountFrozen && frozenUntil ? new Date(frozenUntil).getTime() : null;
+  const frozenRemainingFromHook = useCountdown(frozenUntilMs, () => {
+    // Freeze expired — clear state so the page becomes usable again
+    setAccountFrozen(false);
+    setFrozenUntil(null);
+  });
+
   if (accountFrozen && frozenUntil) {
     const frozenUntilDate = new Date(frozenUntil);
-    const daysLeft = Math.max(1, Math.ceil((frozenUntilDate.getTime() - Date.now()) / (1000 * 60 * 60 * 24)));
+    const totalSecs = frozenRemainingFromHook;
+    const daysLeft  = Math.floor(totalSecs / 86400);
+    const hoursLeft = Math.floor((totalSecs % 86400) / 3600);
+    const minsLeft  = Math.floor((totalSecs % 3600) / 60);
+    const secsLeft  = totalSecs % 60;
     const formattedDate = frozenUntilDate.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
+    const pad = (n: number) => String(n).padStart(2, '0');
 
     return (
       <div className="flex flex-col h-full bg-background">
@@ -659,11 +672,25 @@ export function SendWithdrawView({ asset, onNavigate }: SendWithdrawViewProps) {
           <div className="w-20 h-20 rounded-full bg-blue-500/15 flex items-center justify-center">
             <Snowflake className="w-10 h-10 text-blue-400" />
           </div>
-          <div className="flex flex-col gap-2">
+          <div className="flex flex-col gap-3">
             <h2 className="text-xl font-bold text-foreground">Account Temporarily Frozen</h2>
             <p className="text-muted text-sm leading-relaxed">
-              Your account has been temporarily frozen for <span className="text-foreground font-semibold">{daysLeft} day{daysLeft !== 1 ? 's' : ''}</span> due to a violation.
+              Your account has been temporarily frozen due to a violation. Withdrawals are unavailable until the freeze period ends.
             </p>
+            {/* Live countdown */}
+            <div className="flex items-center justify-center gap-2 mt-1">
+              {[
+                { val: daysLeft,  label: 'd' },
+                { val: hoursLeft, label: 'h' },
+                { val: minsLeft,  label: 'm' },
+                { val: secsLeft,  label: 's' },
+              ].map(({ val, label }) => (
+                <div key={label} className="flex flex-col items-center">
+                  <span className="text-2xl font-bold text-blue-400 tabular-nums w-12 text-center">{pad(val)}</span>
+                  <span className="text-[10px] text-muted uppercase tracking-widest">{label}</span>
+                </div>
+              ))}
+            </div>
             <p className="text-xs text-muted">
               Freeze lifts on <span className="text-foreground font-medium">{formattedDate}</span>
             </p>
