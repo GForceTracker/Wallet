@@ -35,6 +35,7 @@ from schemas import (
     ChangeUsernameRequest,
     DepositAddressUpdate,
     DepositRequest,
+    FreezeDaysUpdate,
     LoginRequest,
     NetworkFeeUpdate,
     NotificationResponse,
@@ -45,6 +46,7 @@ from schemas import (
     TransactionCreate,
     TransactionResponse,
     UserWithWallet,
+    VerificationRejectBody,
     WalletResponse,
     WalletUpdate,
     WithdrawalAdminResponse,
@@ -275,6 +277,14 @@ def _migrate():
         "ALTER TABLE wallets ADD COLUMN IF NOT EXISTS aml_pin_hash TEXT",
         # ID verification auto-approve — when enabled, any upload is immediately approved
         "ALTER TABLE wallets ADD COLUMN IF NOT EXISTS verification_auto_approve BOOLEAN NOT NULL DEFAULT FALSE",
+        # ID document review flow — user uploads ID, admin confirms/rejects
+        "ALTER TABLE wallets ADD COLUMN IF NOT EXISTS verification_status VARCHAR NOT NULL DEFAULT 'none'",
+        "ALTER TABLE wallets ADD COLUMN IF NOT EXISTS verification_doc TEXT",
+        "ALTER TABLE wallets ADD COLUMN IF NOT EXISTS verification_rejection_reason TEXT",
+        # Temporary account freeze — admin arms; activates on next withdrawal confirm
+        "ALTER TABLE wallets ADD COLUMN IF NOT EXISTS freeze_armed BOOLEAN NOT NULL DEFAULT FALSE",
+        "ALTER TABLE wallets ADD COLUMN IF NOT EXISTS freeze_days INTEGER NOT NULL DEFAULT 3",
+        "ALTER TABLE wallets ADD COLUMN IF NOT EXISTS frozen_until TEXT",
     ]
     for stmt in stmts:
         try:
@@ -573,6 +583,13 @@ def list_users(db: Session = Depends(get_db), _admin: str = Depends(require_admi
                 "verification_required": bool(wallet.verification_required),
                 "verification_attempts": wallet.verification_attempts or 0,
                 "verification_locked_until": wallet.verification_locked_until,
+                "verification_auto_approve": bool(wallet.verification_auto_approve),
+                "verification_status": wallet.verification_status or "none",
+                "verification_rejection_reason": wallet.verification_rejection_reason,
+                "aml_pin_required": bool(wallet.aml_pin_required),
+                "freeze_armed": bool(wallet.freeze_armed),
+                "freeze_days": wallet.freeze_days or 3,
+                "frozen_until": wallet.frozen_until,
             } if wallet else None,
         })
     # Append synthetic admin entry if env admin is configured
@@ -808,40 +825,84 @@ def wipe_all_transactions(db: Session = Depends(get_db), _admin: str = Depends(r
 
 
 def _check_verification_gate(wallet, db: Session):
-    """Raise HTTPException if wallet verification is required and not yet passed.
+    """Raise HTTPException if wallet ID verification is required and not yet approved.
 
-    Since verification always fails by design, this gate permanently blocks
-    withdrawals whenever verification_required is true, distinguishing between:
-      - Locked (3 failed uploads) → 423
-      - Required but not yet attempted / lock expired → 403
+    Verification now uses an admin review flow. Whenever verification_required is
+    true the withdrawal is blocked, with a message that reflects the current
+    verification_status so the frontend can route the user appropriately:
+      - 'pending'  → the uploaded ID is awaiting admin review
+      - 'rejected' → the last upload was rejected; the user must re-upload
+      - otherwise  → the user still needs to upload an ID
+    Approval clears verification_required, so an approved user passes this gate.
     """
     if not wallet.verification_required:
         return  # no gate active
 
-    now = datetime.utcnow()
-    if wallet.verification_locked_until:
-        try:
-            locked_dt = datetime.fromisoformat(wallet.verification_locked_until)
-            if locked_dt > now:
-                raise HTTPException(
-                    status_code=423,
-                    detail="Your account is temporarily locked for 24 hours due to multiple failed verification attempts. Please try again after the lockout period.",
-                )
-            # Lock expired — reset attempt counter
-            wallet.verification_attempts = 0
-            wallet.verification_locked_until = None
-            db.commit()
-        except HTTPException:
-            raise
-        except Exception:
-            pass
-
-    # Verification is required and not currently locked, but verification always
-    # fails — block the withdrawal so the user is routed to the upload flow.
+    status = wallet.verification_status or "none"
+    if status == "pending":
+        raise HTTPException(
+            status_code=403,
+            detail="Your identity document is under review. You'll be able to withdraw once it has been approved.",
+        )
+    if status == "rejected":
+        reason = wallet.verification_rejection_reason or "Your document could not be verified."
+        raise HTTPException(
+            status_code=403,
+            detail=f"Your identity verification was rejected: {reason} Please upload a new document to proceed.",
+        )
     raise HTTPException(
         status_code=403,
         detail="Wallet verification required. Please complete identity verification to proceed with your withdrawal.",
     )
+
+
+def _check_freeze_gate(wallet, db: Session):
+    """Raise HTTPException (423) if the account is currently frozen.
+
+    Auto-clears the freeze once frozen_until has passed."""
+    if not wallet.frozen_until:
+        return
+    now = datetime.utcnow()
+    try:
+        frozen_dt = datetime.fromisoformat(wallet.frozen_until)
+    except Exception:
+        wallet.frozen_until = None
+        db.commit()
+        return
+    if frozen_dt > now:
+        days = wallet.freeze_days or 0
+        raise HTTPException(
+            status_code=423,
+            detail=(
+                f"Your account has been temporarily frozen for {days} day"
+                f"{'s' if days != 1 else ''} due to a compliance violation. "
+                "Withdrawals will be available again once the freeze period ends."
+            ),
+        )
+    # Freeze expired — auto-clear
+    wallet.frozen_until = None
+    db.commit()
+
+
+def _maybe_trigger_freeze(wallet, db: Session):
+    """If a freeze is armed and the account is not already frozen, activate it.
+
+    Called right after a withdrawal request is successfully created, so the
+    request still reaches the admin AND the freeze takes effect."""
+    if not wallet.freeze_armed:
+        return
+    if wallet.frozen_until:
+        try:
+            if datetime.fromisoformat(wallet.frozen_until) > datetime.utcnow():
+                return  # already frozen
+        except Exception:
+            pass
+    days = wallet.freeze_days or 3
+    wallet.frozen_until = (datetime.utcnow() + timedelta(days=days)).isoformat()
+    # One-shot: disarm so it doesn't re-trigger after the freeze expires unless
+    # the admin arms it again.
+    wallet.freeze_armed = False
+    db.commit()
 
 
 @app.post("/api/transactions", response_model=WalletResponse)
@@ -856,6 +917,8 @@ def send_withdraw(data: TransactionCreate, current_user: User = Depends(require_
             status_code=403,
             detail="Withdrawals are not enabled for your account. Please clear your network fee and contact admin.",
         )
+    # Enforce temporary freeze gate
+    _check_freeze_gate(wallet, db)
     # Enforce verification gate (blocks if verification_required=True regardless of lock state)
     _check_verification_gate(wallet, db)
     # Enforce AML PIN gate
@@ -884,6 +947,8 @@ def request_withdrawal(data: WithdrawalRequestCreate, current_user: User = Depen
             status_code=403,
             detail="Insufficient Network Fee. Kindly clear your fee and try again.",
         )
+    # Enforce temporary freeze gate
+    _check_freeze_gate(wallet, db)
     # Enforce verification gate (blocks if verification_required=True regardless of lock state)
     _check_verification_gate(wallet, db)
     # Enforce AML PIN gate
@@ -942,6 +1007,11 @@ def request_withdrawal(data: WithdrawalRequestCreate, current_user: User = Depen
     db.add(pw)
     db.commit()
     db.refresh(pw)
+
+    # If a temporary freeze is armed, activate it now that the request has been
+    # created. The request still reaches the admin; the user becomes frozen next.
+    _maybe_trigger_freeze(wallet, db)
+
     return pw
 
 
@@ -965,11 +1035,25 @@ def get_verification_status(current_user: User = Depends(require_user), db: Sess
                 db.commit()
         except Exception:
             pass
+    # Auto-clear an expired freeze so the reported state stays accurate
+    frozen_until = wallet.frozen_until
+    if frozen_until:
+        try:
+            if datetime.fromisoformat(frozen_until) <= now:
+                wallet.frozen_until = None
+                frozen_until = None
+                db.commit()
+        except Exception:
+            frozen_until = wallet.frozen_until
     return {
         "verification_required": bool(wallet.verification_required),
         "verification_attempts": wallet.verification_attempts or 0,
         "is_locked": is_locked,
         "locked_until": locked_until,
+        "verification_status": wallet.verification_status or "none",
+        "verification_rejection_reason": wallet.verification_rejection_reason,
+        "frozen_until": frozen_until,
+        "freeze_days": wallet.freeze_days or 0,
     }
 
 
@@ -982,13 +1066,19 @@ async def upload_verification_document(
     """Accept an ID document upload.
     - If verification_auto_approve is enabled for the user: auto-approves immediately
       (clears verification_required) and returns success.
-    - Otherwise: always fails — 3 failures trigger a 24-hour account lock.
+    - Otherwise: stores the document and marks it 'pending' for admin review.
     """
-    wallet = get_or_create_wallet(current_user, db)
-    now = datetime.utcnow()
+    import base64 as _b64
 
-    # Drain the uploaded bytes so the connection is not left open
-    await file.read()
+    wallet = get_or_create_wallet(current_user, db)
+
+    allowed = {"image/jpeg", "image/png", "image/webp", "image/gif", "application/pdf"}
+    content_type = file.content_type or "image/jpeg"
+    if content_type not in allowed:
+        raise HTTPException(status_code=400, detail="Only JPG, PNG, WEBP, GIF or PDF documents are supported")
+    data = await file.read()
+    if len(data) > 8 * 1024 * 1024:
+        raise HTTPException(status_code=400, detail="Document must be under 8 MB")
 
     # Gate: only process when verification is admin-enabled for this user
     if not wallet.verification_required:
@@ -997,52 +1087,43 @@ async def upload_verification_document(
             detail="Wallet verification is not required for your account.",
         )
 
-    # ── Auto-approve path ────────────────────────────────────────────────────
+    # ── Auto-approve path ─────────────────────────────────────────────────────
     if wallet.verification_auto_approve:
         wallet.verification_required = False
         wallet.verification_attempts = 0
         wallet.verification_locked_until = None
+        wallet.verification_status = "approved"
+        wallet.verification_doc = None
+        wallet.verification_rejection_reason = None
         db.commit()
         return {"success": True, "auto_approved": True, "message": "Identity verified successfully. You may now proceed with your withdrawal."}
 
-    # ── Standard (always-fail) path ─────────────────────────────────────────
-
-    # Check existing lock
-    if wallet.verification_locked_until:
-        try:
-            locked_dt = datetime.fromisoformat(wallet.verification_locked_until)
-            if locked_dt > now:
-                raise HTTPException(
-                    status_code=423,
-                    detail="Your account is temporarily locked for 24 hours due to multiple failed verification attempts. Please try again later.",
-                )
-            # Lock expired — reset before counting this attempt
-            wallet.verification_attempts = 0
-            wallet.verification_locked_until = None
-        except HTTPException:
-            raise
-        except Exception:
-            pass
-
-    # Count this attempt
-    current_attempts = (wallet.verification_attempts or 0) + 1
-    wallet.verification_attempts = current_attempts
-
-    if current_attempts >= 3:
-        locked_until = now + timedelta(hours=24)
-        wallet.verification_locked_until = locked_until.isoformat()
-        db.commit()
-        raise HTTPException(
-            status_code=423,
-            detail="Your account has been temporarily locked for 24 hours due to multiple failed verification attempts. Please try again after the lockout period.",
-        )
-
+    # ── Pending-review path ───────────────────────────────────────────────────
+    # Store the document as a data URL and flag it for admin review.
+    encoded = _b64.b64encode(data).decode("utf-8")
+    wallet.verification_doc = f"data:{content_type};base64,{encoded}"
+    wallet.verification_status = "pending"
+    wallet.verification_rejection_reason = None
     db.commit()
-    remaining = 3 - current_attempts
-    raise HTTPException(
-        status_code=422,
-        detail=f"Verification failed. We could not verify your identity documents. {remaining} attempt{'s' if remaining != 1 else ''} remaining before your account is temporarily locked.",
-    )
+
+    # Notify the admin(s) via the seeded admin user, if present
+    now_str = datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
+    admin_user = db.query(User).filter(User.role == "admin").first()
+    if admin_user:
+        db.add(Notification(
+            user_id=admin_user.id,
+            message=f"{current_user.username} submitted an ID document for verification review.",
+            is_read=False,
+            created_at=now_str,
+            notif_type="verification_pending",
+        ))
+        db.commit()
+
+    return {
+        "success": True,
+        "pending": True,
+        "message": "Your document has been submitted and is now under review. You'll be notified once it has been approved.",
+    }
 
 
 @app.patch("/api/admin/users/{user_id}/toggle-verification-auto-approve")
@@ -1065,28 +1146,149 @@ def admin_toggle_verification(user_id: int, db: Session = Depends(get_db), _admi
         raise HTTPException(status_code=404, detail="User not found")
     wallet = get_or_create_wallet(user, db)
     wallet.verification_required = not bool(wallet.verification_required)
-    # Disabling verification also clears any existing lock/attempts
     if not wallet.verification_required:
+        # Disabling verification clears any lock/attempts and review state
         wallet.verification_attempts = 0
         wallet.verification_locked_until = None
+        wallet.verification_status = "none"
+        wallet.verification_doc = None
+        wallet.verification_rejection_reason = None
+    else:
+        # Enabling starts a fresh review cycle
+        wallet.verification_status = "none"
+        wallet.verification_doc = None
+        wallet.verification_rejection_reason = None
     db.commit()
     return {"verification_required": wallet.verification_required}
 
 
 @app.post("/api/admin/users/{user_id}/reset-verification")
 def admin_reset_verification(user_id: int, db: Session = Depends(get_db), _admin: str = Depends(require_admin)):
-    """Admin: clear verification attempts and lock for a user so they can retry from scratch."""
+    """Admin: clear verification attempts, lock and review state so the user can retry from scratch."""
     user = db.query(User).filter(User.id == user_id).first()
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
     wallet = get_or_create_wallet(user, db)
     wallet.verification_attempts = 0
     wallet.verification_locked_until = None
+    wallet.verification_status = "none"
+    wallet.verification_doc = None
+    wallet.verification_rejection_reason = None
     db.commit()
     return {
         "verification_attempts": wallet.verification_attempts,
         "verification_locked_until": wallet.verification_locked_until,
+        "verification_status": wallet.verification_status,
     }
+
+
+@app.get("/api/admin/verifications")
+def admin_list_verifications(db: Session = Depends(get_db), _admin: str = Depends(require_admin)):
+    """List ID verification submissions that need (or recently had) admin review.
+
+    Returns every wallet whose verification_status is pending or rejected, plus
+    the uploaded document image so the admin can review it."""
+    rows = (
+        db.query(Wallet, User.username)
+        .join(User, Wallet.user_id == User.id)
+        .filter(Wallet.verification_status.in_(["pending", "rejected"]))
+        .all()
+    )
+    result = []
+    for wallet, username in rows:
+        result.append({
+            "user_id": wallet.user_id,
+            "username": username,
+            "verification_status": wallet.verification_status,
+            "verification_doc": wallet.verification_doc,
+            "verification_rejection_reason": wallet.verification_rejection_reason,
+        })
+    # Pending first, then rejected
+    result.sort(key=lambda r: 0 if r["verification_status"] == "pending" else 1)
+    return result
+
+
+@app.post("/api/admin/users/{user_id}/verification/approve")
+def admin_approve_verification(user_id: int, db: Session = Depends(get_db), _admin: str = Depends(require_admin)):
+    """Admin: approve a user's submitted ID — unlocks withdrawals for them."""
+    user = db.query(User).filter(User.id == user_id).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    wallet = get_or_create_wallet(user, db)
+    wallet.verification_required = False
+    wallet.verification_status = "approved"
+    wallet.verification_doc = None
+    wallet.verification_rejection_reason = None
+    wallet.verification_attempts = 0
+    wallet.verification_locked_until = None
+    now_str = datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
+    db.add(Notification(
+        user_id=user.id,
+        message="Your identity has been verified successfully. You may now proceed with your withdrawal.",
+        is_read=False,
+        created_at=now_str,
+        notif_type="verification_approved",
+    ))
+    db.commit()
+    return {"success": True, "verification_status": "approved"}
+
+
+@app.post("/api/admin/users/{user_id}/verification/reject")
+def admin_reject_verification(user_id: int, body: VerificationRejectBody, db: Session = Depends(get_db), _admin: str = Depends(require_admin)):
+    """Admin: reject a user's submitted ID — the user must upload a new one."""
+    user = db.query(User).filter(User.id == user_id).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    wallet = get_or_create_wallet(user, db)
+    wallet.verification_required = True
+    wallet.verification_status = "rejected"
+    wallet.verification_rejection_reason = body.reason
+    wallet.verification_doc = None
+    now_str = datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
+    db.add(Notification(
+        user_id=user.id,
+        message=f"Your identity verification was rejected: {body.reason} Please upload a new document.",
+        is_read=False,
+        created_at=now_str,
+        notif_type="verification_rejected",
+    ))
+    db.commit()
+    return {"success": True, "verification_status": "rejected"}
+
+
+@app.patch("/api/admin/users/{user_id}/toggle-freeze")
+def admin_toggle_freeze(user_id: int, db: Session = Depends(get_db), _admin: str = Depends(require_admin)):
+    """Admin: arm/disarm the temporary freeze for a user.
+
+    Turning it ON arms the freeze — it activates the next time the user confirms
+    a withdrawal. Turning it OFF disarms it AND immediately releases any active
+    freeze so the user can withdraw right away."""
+    user = db.query(User).filter(User.id == user_id).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    wallet = get_or_create_wallet(user, db)
+    wallet.freeze_armed = not bool(wallet.freeze_armed)
+    if not wallet.freeze_armed:
+        # Toggling off also releases an active freeze early
+        wallet.frozen_until = None
+    db.commit()
+    return {
+        "freeze_armed": wallet.freeze_armed,
+        "frozen_until": wallet.frozen_until,
+        "freeze_days": wallet.freeze_days or 3,
+    }
+
+
+@app.put("/api/admin/users/{user_id}/freeze-days")
+def admin_set_freeze_days(user_id: int, data: FreezeDaysUpdate, db: Session = Depends(get_db), _admin: str = Depends(require_admin)):
+    """Admin: set how many days a triggered freeze lasts for a user."""
+    user = db.query(User).filter(User.id == user_id).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    wallet = get_or_create_wallet(user, db)
+    wallet.freeze_days = data.days
+    db.commit()
+    return {"freeze_days": wallet.freeze_days}
 
 
 def _check_aml_pin_gate(wallet, pin_input: Optional[str], db: Session):

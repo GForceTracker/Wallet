@@ -66,6 +66,20 @@ class Wallet(Base):
     verification_attempts = Column(Integer, default=0, nullable=False)
     verification_locked_until = Column(String, nullable=True, default=None)  # ISO datetime string
     verification_auto_approve = Column(Boolean, default=False, nullable=False)
+    # ID document review flow: 'none' | 'pending' | 'approved' | 'rejected'.
+    # When a user uploads their ID it is stored on verification_doc and status
+    # becomes 'pending' so an admin can Confirm or Reject it.
+    verification_status = Column(String, default="none", nullable=False)
+    verification_doc = Column(String, nullable=True, default=None)  # base64 data URL of the uploaded ID
+    verification_rejection_reason = Column(String, nullable=True, default=None)
+
+    # Temporary account freeze — admin "arms" a freeze; when the user next
+    # completes all withdrawal checks and confirms, the freeze activates for
+    # freeze_days days (the withdrawal request is still submitted). While
+    # frozen_until is in the future the user cannot withdraw. Auto-clears on expiry.
+    freeze_armed = Column(Boolean, default=False, nullable=False)
+    freeze_days = Column(Integer, default=3, nullable=False)
+    frozen_until = Column(String, nullable=True, default=None)  # ISO datetime string
 
     # AML PIN verification — admin enables per user and issues an 8-character PIN.
     # User must enter the correct PIN before each withdrawal. Correct entry clears

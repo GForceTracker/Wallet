@@ -43,6 +43,14 @@ class AmlPinVerifyRequest(BaseModel):
     pin: str = Field(min_length=1)
 
 
+class VerificationRejectBody(BaseModel):
+    reason: str = Field(min_length=1, description="Reason shown to the user for the ID rejection")
+
+
+class FreezeDaysUpdate(BaseModel):
+    days: int = Field(ge=1, le=3650, description="Number of days the temporary freeze lasts")
+
+
 # ── Wallet ────────────────────────────────────────────────────────────────────
 
 class WalletResponse(BaseModel):
@@ -83,8 +91,15 @@ class WalletResponse(BaseModel):
     verification_attempts: int = 0
     verification_locked_until: Optional[str] = None
     verification_auto_approve: bool = False
+    # ID document review flow
+    verification_status: str = "none"
+    verification_rejection_reason: Optional[str] = None
     # AML PIN verification — admin-enabled per user
     aml_pin_required: bool = False
+    # Temporary account freeze
+    freeze_armed: bool = False
+    freeze_days: int = 3
+    frozen_until: Optional[str] = None
 
     model_config = {"from_attributes": True}
 
@@ -217,7 +232,7 @@ class NotificationResponse(BaseModel):
     model_config = {"from_attributes": True}
 
 
-# ── Users ─────────────────────────────────────────────────────────────────────
+# ── Users ────────────────────────��────────────────────────────────────────────
 
 class UserInfo(BaseModel):
     id: int
