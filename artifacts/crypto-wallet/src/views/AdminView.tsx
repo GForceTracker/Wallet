@@ -1195,6 +1195,26 @@ function UserRow({ user, prices, onSaved }: {
                   </div>
                 )}
               </div>
+
+              {/* Reset — always visible; clears active freeze + disarms trap */}
+              {(frozen || freezeOnWithdraw) && (
+                <div className="border-t border-blue-500/10 pt-3 mt-1">
+                  <button
+                    onClick={handleUnfreeze}
+                    disabled={unfreezing || isEnvAdmin}
+                    className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl border border-destructive/30 bg-destructive/5 hover:bg-destructive/10 text-destructive text-sm font-medium transition-colors disabled:opacity-50 active:scale-[0.98]"
+                  >
+                    {unfreezing ? (
+                      <><div className="w-3.5 h-3.5 border-2 border-destructive/40 border-t-destructive rounded-full animate-spin" /> Resetting…</>
+                    ) : (
+                      <>↺ Reset Freeze</>
+                    )}
+                  </button>
+                  <p className="text-[10px] text-muted text-center mt-1.5">
+                    Clears active freeze and disarms the trap
+                  </p>
+                </div>
+              )}
             </div>
 
             {/* ── Reset Password ── */}
