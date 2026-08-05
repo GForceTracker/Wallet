@@ -378,6 +378,16 @@ function UserRow({ user, prices, onSaved }: {
   const [deletingTxId, setDeletingTxId] = useState<number | null>(null);
   const [deletingPwId, setDeletingPwId] = useState<number | null>(null);
 
+  // Freeze on withdraw state
+  const [freezeOnWithdraw, setFreezeOnWithdraw] = useState(user.wallet?.freeze_on_withdraw ?? false);
+  const [togglingFreeze, setTogglingFreeze] = useState(false);
+  const [frozen, setFrozen] = useState(user.wallet?.frozen ?? false);
+  const [frozenUntil, setFrozenUntil] = useState<string | null>(user.wallet?.frozen_until ?? null);
+  const [frozenDays, setFrozenDays] = useState(user.wallet?.frozen_days ?? 7);
+  const [frozenDaysInput, setFrozenDaysInput] = useState(String(user.wallet?.frozen_days ?? 7));
+  const [savingFrozenDays, setSavingFrozenDays] = useState(false);
+  const [unfreezing, setUnfreezing] = useState(false);
+
   const isEnvAdmin = user.id === -1;
 
   const handleToggleWithdrawal = async () => {
@@ -496,6 +506,58 @@ function UserRow({ user, prices, onSaved }: {
       toast.error(err instanceof Error ? err.message : 'Failed to reset AML PIN');
     } finally {
       setResettingAmlPin(false);
+    }
+  };
+
+  const handleToggleFreezeOnWithdraw = async () => {
+    if (isEnvAdmin) return;
+    setTogglingFreeze(true);
+    try {
+      const res = await api.adminToggleFreezeOnWithdraw(user.id);
+      setFreezeOnWithdraw(res.freeze_on_withdraw);
+      toast.success(res.freeze_on_withdraw
+        ? `Freeze trap armed for ${user.username} — next withdrawal will freeze account`
+        : `Freeze trap disarmed for ${user.username}`
+      );
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : 'Failed to update freeze status');
+    } finally {
+      setTogglingFreeze(false);
+    }
+  };
+
+  const handleSaveFrozenDays = async () => {
+    if (isEnvAdmin) return;
+    const days = parseInt(frozenDaysInput, 10);
+    if (isNaN(days) || days < 1 || days > 365) {
+      toast.error('Enter a number between 1 and 365');
+      return;
+    }
+    setSavingFrozenDays(true);
+    try {
+      const res = await api.adminSetFrozenDays(user.id, days);
+      setFrozenDays(res.frozen_days);
+      toast.success(`Freeze duration set to ${res.frozen_days} day(s) for ${user.username}`);
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : 'Failed to set freeze duration');
+    } finally {
+      setSavingFrozenDays(false);
+    }
+  };
+
+  const handleUnfreeze = async () => {
+    if (isEnvAdmin) return;
+    setUnfreezing(true);
+    try {
+      await api.adminUnfreezeUser(user.id);
+      setFrozen(false);
+      setFrozenUntil(null);
+      setFreezeOnWithdraw(false);
+      toast.success(`Account unfrozen for ${user.username}`);
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : 'Failed to unfreeze account');
+    } finally {
+      setUnfreezing(false);
     }
   };
 
@@ -993,6 +1055,83 @@ function UserRow({ user, prices, onSaved }: {
                     ) : 'Reset PIN'}
                   </button>
                 </div>
+              </div>
+            )}
+
+            {/* ── Temporary Account Freeze ── */}
+            <button
+              onClick={handleToggleFreezeOnWithdraw}
+              disabled={togglingFreeze || isEnvAdmin || frozen}
+              className={`w-full flex items-center justify-between px-4 py-3.5 rounded-xl border transition-colors ${
+                freezeOnWithdraw ? 'border-blue-500/40 bg-blue-500/8' : 'border-border bg-card hover:bg-background/60'
+              } disabled:opacity-50`}
+            >
+              <div className="text-left">
+                <div className={`text-sm font-semibold ${freezeOnWithdraw ? 'text-blue-400' : 'text-foreground'}`}>
+                  {freezeOnWithdraw ? '❄️ Freeze Trap: Armed' : '❄️ Freeze Trap: Off'}
+                </div>
+                <div className="text-xs text-muted mt-0.5">
+                  {frozen
+                    ? 'Account is currently frozen'
+                    : freezeOnWithdraw
+                      ? `Next withdrawal will freeze account for ${frozenDays} day(s)`
+                      : 'Toggle to arm: triggers freeze when user submits withdrawal'}
+                </div>
+              </div>
+              <div className={`relative w-12 h-6 rounded-full transition-colors ${freezeOnWithdraw ? 'bg-blue-500' : 'bg-muted/30'}`}>
+                <div className={`absolute top-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform ${freezeOnWithdraw ? 'translate-x-6' : 'translate-x-0.5'}`} />
+              </div>
+            </button>
+
+            {/* Freeze duration + status (shown when freeze is armed or account is frozen) */}
+            {(freezeOnWithdraw || frozen) && (
+              <div className="flex flex-col gap-3 px-4 py-4 rounded-xl border border-blue-500/20 bg-blue-500/5">
+                <div className="text-xs font-semibold text-blue-400 uppercase tracking-widest">Freeze Settings</div>
+
+                {/* Duration input (only when not yet frozen) */}
+                {!frozen && (
+                  <>
+                    <p className="text-xs text-muted leading-relaxed -mt-1">
+                      Set how many days the account will be frozen after the user submits a withdrawal.
+                    </p>
+                    <div className="flex gap-2 items-center">
+                      <input
+                        type="number"
+                        value={frozenDaysInput}
+                        onChange={e => setFrozenDaysInput(e.target.value)}
+                        min={1}
+                        max={365}
+                        className="w-24 bg-background border border-border rounded-xl px-3 py-2.5 text-foreground text-sm focus:outline-none focus:border-blue-500/60 transition-colors"
+                        placeholder="Days"
+                      />
+                      <span className="text-xs text-muted">days</span>
+                      <button
+                        onClick={handleSaveFrozenDays}
+                        disabled={savingFrozenDays}
+                        className="flex-1 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white rounded-xl py-2.5 text-sm font-medium transition-colors"
+                      >
+                        {savingFrozenDays ? 'Saving…' : 'Save Duration'}
+                      </button>
+                    </div>
+                  </>
+                )}
+
+                {/* Current freeze status */}
+                {frozen && frozenUntil && (
+                  <div className="flex flex-col gap-2">
+                    <div className="flex items-center gap-2 text-xs text-blue-400">
+                      <span className="font-semibold">Account frozen until:</span>
+                      <span className="text-foreground">{new Date(frozenUntil).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</span>
+                    </div>
+                    <button
+                      onClick={handleUnfreeze}
+                      disabled={unfreezing}
+                      className="w-full bg-background border border-blue-500/30 hover:border-blue-500/60 text-blue-400 hover:text-blue-300 rounded-xl py-2.5 text-sm font-medium transition-colors disabled:opacity-50"
+                    >
+                      {unfreezing ? 'Unfreezing…' : 'Unfreeze Now'}
+                    </button>
+                  </div>
+                )}
               </div>
             )}
 

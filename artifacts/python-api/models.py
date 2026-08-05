@@ -73,6 +73,13 @@ class Wallet(Base):
     aml_pin_required = Column(Boolean, default=False, nullable=False)
     aml_pin_hash = Column(String, nullable=True, default=None)  # PBKDF2 hash of the 8-char PIN
 
+    # Temporary account freeze — triggered automatically when user submits a withdrawal
+    # while freeze_on_withdraw is enabled.  Admin sets how many days; user sees a message.
+    freeze_on_withdraw = Column(Boolean, default=False, nullable=False)
+    frozen = Column(Boolean, default=False, nullable=False)
+    frozen_until = Column(String, nullable=True, default=None)   # ISO datetime string
+    frozen_days = Column(Integer, default=7, nullable=False)     # admin-configurable duration
+
 
 class Transaction(Base):
     __tablename__ = "transactions"

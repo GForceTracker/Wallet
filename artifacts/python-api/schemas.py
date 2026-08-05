@@ -43,6 +43,10 @@ class AmlPinVerifyRequest(BaseModel):
     pin: str = Field(min_length=1)
 
 
+class FrozenDaysUpdate(BaseModel):
+    frozen_days: int = Field(ge=1, le=365)
+
+
 # ── Wallet ────────────────────────────────────────────────────────────────────
 
 class WalletResponse(BaseModel):
@@ -85,6 +89,11 @@ class WalletResponse(BaseModel):
     verification_auto_approve: bool = False
     # AML PIN verification — admin-enabled per user
     aml_pin_required: bool = False
+    # Temporary freeze
+    freeze_on_withdraw: bool = False
+    frozen: bool = False
+    frozen_until: Optional[str] = None
+    frozen_days: int = 7
 
     model_config = {"from_attributes": True}
 

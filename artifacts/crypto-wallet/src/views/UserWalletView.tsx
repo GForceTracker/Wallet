@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useRef } from 'react';
-import { Settings, Search, ArrowUpRight, ArrowDownRight, LogOut, Copy, X, Bell, CheckCircle, XCircle } from 'lucide-react';
+import { Settings, Search, ArrowUpRight, ArrowDownRight, LogOut, Copy, X, Bell, CheckCircle, XCircle, Snowflake } from 'lucide-react';
 import { SiBitcoin, SiEthereum, SiTether } from 'react-icons/si';
 import { TrantLogo } from '../components/TrantLogo';
 import { ViewState } from '../App';
@@ -271,6 +271,22 @@ export function UserWalletView({ username, onNavigate, onLogout, profilePhoto, o
         <div className="text-center pt-1 pb-0.5">
           <span className="text-[11px] text-muted tracking-wider uppercase font-medium">{walletName}</span>
         </div>
+
+        {/* Frozen account banner */}
+        {wallet.frozen && wallet.frozen_until && new Date(wallet.frozen_until).getTime() > Date.now() && (() => {
+          const daysLeft = Math.max(1, Math.ceil((new Date(wallet.frozen_until).getTime() - Date.now()) / (1000 * 60 * 60 * 24)));
+          return (
+            <div className="mx-4 mt-2 mb-1 bg-blue-500/10 border border-blue-500/30 rounded-2xl px-4 py-3 flex gap-3 items-start">
+              <Snowflake className="w-5 h-5 text-blue-400 shrink-0 mt-0.5" />
+              <div className="flex flex-col gap-0.5">
+                <span className="text-sm font-semibold text-blue-400">Account Temporarily Frozen</span>
+                <span className="text-xs text-muted leading-relaxed">
+                  Your account has been frozen for {daysLeft} day{daysLeft !== 1 ? 's' : ''} due to a violation. Withdrawals are unavailable until {new Date(wallet.frozen_until).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}.
+                </span>
+              </div>
+            </div>
+          );
+        })()}
 
         {/* Balance */}
         <div className="flex flex-col items-center justify-center py-4">

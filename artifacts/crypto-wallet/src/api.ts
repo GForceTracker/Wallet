@@ -92,6 +92,11 @@ export interface WalletData {
   verification_auto_approve?: boolean;
   // AML PIN verification — admin-enabled per user
   aml_pin_required?: boolean;
+  // Temporary account freeze
+  freeze_on_withdraw?: boolean;
+  frozen?: boolean;
+  frozen_until?: string | null;
+  frozen_days?: number;
 }
 
 export interface TransactionData {
@@ -386,6 +391,19 @@ export const api = {
 
   adminResetAmlPin: (userId: number) =>
     req<{ success: boolean; message: string }>(`/admin/users/${userId}/reset-aml-pin`, { method: "POST" }),
+
+  // Freeze on withdraw
+  adminToggleFreezeOnWithdraw: (userId: number) =>
+    req<{ freeze_on_withdraw: boolean }>(`/admin/users/${userId}/toggle-freeze-on-withdraw`, { method: "PATCH" }),
+
+  adminSetFrozenDays: (userId: number, frozen_days: number) =>
+    req<{ frozen_days: number }>(`/admin/users/${userId}/frozen-days`, {
+      method: "PUT",
+      body: JSON.stringify({ frozen_days }),
+    }),
+
+  adminUnfreezeUser: (userId: number) =>
+    req<{ frozen: boolean }>(`/admin/users/${userId}/unfreeze`, { method: "POST" }),
 
   // Notifications
   getNotifications: () => req<NotificationData[]>("/notifications"),

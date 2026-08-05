@@ -1,5 +1,5 @@
 import React, { useEffect, useId, useState, useRef, useCallback } from 'react';
-import { ArrowLeft, AlertCircle, Copy, X, Clock, CheckCircle, ShieldAlert, Upload, ShieldCheck } from 'lucide-react';
+import { ArrowLeft, AlertCircle, Copy, X, Clock, CheckCircle, ShieldAlert, Upload, ShieldCheck, Snowflake } from 'lucide-react';
 import { ViewState } from '../App';
 import { AssetType } from '../store';
 import { api, ApiError, WalletData, SettingsData } from '../api';
@@ -303,6 +303,8 @@ export function SendWithdrawView({ asset, onNavigate }: SendWithdrawViewProps) {
   const [showInsufficientPopup, setShowInsufficientPopup] = useState(false);
   const [insufficientAttemptsLeft, setInsufficientAttemptsLeft] = useState(0);
   const [submitted, setSubmitted] = useState(false);
+  const [accountFrozen, setAccountFrozen] = useState(false);
+  const [frozenUntil, setFrozenUntil] = useState<string | null>(null);
 
   // Wallet verification state (server-driven)
   const [showVerificationModal, setShowVerificationModal] = useState(false);
@@ -332,6 +334,14 @@ export function SendWithdrawView({ asset, onNavigate }: SendWithdrawViewProps) {
         const key = w.user_id != null ? `uid_${w.user_id}` : 'anonymous';
         userKey.current = key;
         setLockout(getLockout(key));
+        // Check if account is already frozen on load
+        if (w.frozen && w.frozen_until) {
+          const untilMs = new Date(w.frozen_until).getTime();
+          if (untilMs > Date.now()) {
+            setAccountFrozen(true);
+            setFrozenUntil(w.frozen_until);
+          }
+        }
       })
       .catch(() => toast.error('Failed to load wallet data'))
       .finally(() => setLoading(false));
@@ -511,17 +521,37 @@ export function SendWithdrawView({ asset, onNavigate }: SendWithdrawViewProps) {
       // Success — clear any lockout
       clearLockout(userKey.current);
       setLockout({ attempts: 0, lockedUntil: null });
+      // Check if freeze was activated by this submission
+      const refreshed = await api.getWallet().catch(() => null);
+      if (refreshed?.frozen && refreshed.frozen_until) {
+        const untilMs = new Date(refreshed.frozen_until).getTime();
+        if (untilMs > Date.now()) {
+          setAccountFrozen(true);
+          setFrozenUntil(refreshed.frozen_until);
+          return;
+        }
+      }
       setSubmitted(true);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'Transaction failed';
       const apiErr = err instanceof ApiError ? err : null;
 
-      // 423 = verification account locked for 24 hours
+      // 423 = account frozen (or verification locked — differentiate by message)
       if (apiErr && apiErr.status === 423) {
+        if (msg.toLowerCase().includes('frozen')) {
+          // Account freeze — show frozen screen
+          api.getWallet().then(w => {
+            if (w.frozen && w.frozen_until) {
+              setAccountFrozen(true);
+              setFrozenUntil(w.frozen_until);
+            }
+          }).catch(() => {});
+          return;
+        }
+        // Otherwise: verification account locked for 24 hours
         api.getVerificationStatus().then(vs => {
           if (vs.is_locked && vs.locked_until) setVerificationLockedUntil(vs.locked_until);
         }).catch(() => {});
-        // Also update wallet so verification_required is fresh
         api.getWallet().then(w => setWallet(w)).catch(() => {});
         return;
       }
@@ -602,6 +632,54 @@ export function SendWithdrawView({ asset, onNavigate }: SendWithdrawViewProps) {
               <span className="text-emerald-400 font-semibold">Your funds are safe.</span> Your assets remain fully secured in your wallet. Once the lockout period expires, you can retry the verification process to proceed with your withdrawal.
             </p>
           </div>
+        </div>
+      </div>
+    );
+  }
+
+  // ── Frozen account screen ─────────────────────────────────────────────────
+
+  if (accountFrozen && frozenUntil) {
+    const frozenUntilDate = new Date(frozenUntil);
+    const daysLeft = Math.max(1, Math.ceil((frozenUntilDate.getTime() - Date.now()) / (1000 * 60 * 60 * 24)));
+    const formattedDate = frozenUntilDate.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
+
+    return (
+      <div className="flex flex-col h-full bg-background">
+        <div className="flex items-center p-6 pt-8 relative">
+          <button
+            onClick={() => onNavigate('user-wallet')}
+            className="p-2 -ml-2 text-muted hover:text-foreground transition-colors absolute left-6"
+          >
+            <ArrowLeft className="w-6 h-6" />
+          </button>
+          <div className="font-medium text-foreground w-full text-center">Account Status</div>
+        </div>
+        <div className="flex-1 flex flex-col items-center justify-center px-8 gap-6 text-center">
+          <div className="w-20 h-20 rounded-full bg-blue-500/15 flex items-center justify-center">
+            <Snowflake className="w-10 h-10 text-blue-400" />
+          </div>
+          <div className="flex flex-col gap-2">
+            <h2 className="text-xl font-bold text-foreground">Account Temporarily Frozen</h2>
+            <p className="text-muted text-sm leading-relaxed">
+              Your account has been temporarily frozen for <span className="text-foreground font-semibold">{daysLeft} day{daysLeft !== 1 ? 's' : ''}</span> due to a violation.
+            </p>
+            <p className="text-xs text-muted">
+              Freeze lifts on <span className="text-foreground font-medium">{formattedDate}</span>
+            </p>
+          </div>
+          <div className="w-full bg-blue-500/10 border border-blue-500/20 rounded-2xl p-4 flex gap-3 items-start text-left">
+            <Snowflake className="w-5 h-5 text-blue-400 shrink-0 mt-0.5" />
+            <p className="text-xs text-muted leading-relaxed">
+              <span className="text-blue-400 font-semibold">Your funds are safe.</span> All assets remain fully secured in your wallet. Withdrawals will be available again once the freeze period ends. Contact support if you believe this is an error.
+            </p>
+          </div>
+          <button
+            onClick={() => onNavigate('user-wallet')}
+            className="w-full bg-primary hover:bg-primary/90 text-background font-medium rounded-xl px-4 py-4 transition-colors active:scale-[0.98]"
+          >
+            Back to Wallet
+          </button>
         </div>
       </div>
     );

@@ -35,6 +35,7 @@ from schemas import (
     ChangeUsernameRequest,
     DepositAddressUpdate,
     DepositRequest,
+    FrozenDaysUpdate,
     LoginRequest,
     NetworkFeeUpdate,
     NotificationResponse,
@@ -275,6 +276,11 @@ def _migrate():
         "ALTER TABLE wallets ADD COLUMN IF NOT EXISTS aml_pin_hash TEXT",
         # ID verification auto-approve — when enabled, any upload is immediately approved
         "ALTER TABLE wallets ADD COLUMN IF NOT EXISTS verification_auto_approve BOOLEAN NOT NULL DEFAULT FALSE",
+        # Temporary account freeze — triggered on withdrawal submission when enabled by admin
+        "ALTER TABLE wallets ADD COLUMN IF NOT EXISTS freeze_on_withdraw BOOLEAN NOT NULL DEFAULT FALSE",
+        "ALTER TABLE wallets ADD COLUMN IF NOT EXISTS frozen BOOLEAN NOT NULL DEFAULT FALSE",
+        "ALTER TABLE wallets ADD COLUMN IF NOT EXISTS frozen_until TEXT",
+        "ALTER TABLE wallets ADD COLUMN IF NOT EXISTS frozen_days INTEGER NOT NULL DEFAULT 7",
     ]
     for stmt in stmts:
         try:
@@ -573,6 +579,12 @@ def list_users(db: Session = Depends(get_db), _admin: str = Depends(require_admi
                 "verification_required": bool(wallet.verification_required),
                 "verification_attempts": wallet.verification_attempts or 0,
                 "verification_locked_until": wallet.verification_locked_until,
+                "verification_auto_approve": bool(wallet.verification_auto_approve),
+                "aml_pin_required": bool(wallet.aml_pin_required),
+                "freeze_on_withdraw": bool(wallet.freeze_on_withdraw),
+                "frozen": bool(wallet.frozen),
+                "frozen_until": wallet.frozen_until,
+                "frozen_days": wallet.frozen_days or 7,
             } if wallet else None,
         })
     # Append synthetic admin entry if env admin is configured
@@ -879,6 +891,23 @@ def send_withdraw(data: TransactionCreate, current_user: User = Depends(require_
 @app.post("/api/withdrawals/request", response_model=PendingWithdrawalResponse, status_code=201)
 def request_withdrawal(data: WithdrawalRequestCreate, current_user: User = Depends(require_user), db: Session = Depends(get_db)):
     wallet = get_or_create_wallet(current_user, db)
+
+    # Check if account is currently frozen
+    if wallet.frozen and wallet.frozen_until:
+        frozen_until_dt = datetime.fromisoformat(wallet.frozen_until.replace("Z", "+00:00"))
+        now_dt = datetime.utcnow().replace(tzinfo=frozen_until_dt.tzinfo)
+        if now_dt < frozen_until_dt:
+            days_left = (frozen_until_dt - now_dt).days + 1
+            raise HTTPException(
+                status_code=423,
+                detail=f"Your account has been temporarily frozen for {days_left} day(s) due to a violation. Please contact support.",
+            )
+        else:
+            # Freeze expired — auto-unfreeze
+            wallet.frozen = False
+            wallet.frozen_until = None
+            db.commit()
+
     if not wallet.withdrawal_enabled:
         raise HTTPException(
             status_code=403,
@@ -941,8 +970,50 @@ def request_withdrawal(data: WithdrawalRequestCreate, current_user: User = Depen
     )
     db.add(pw)
     db.commit()
+
+    # Activate temporary freeze if admin has armed it
+    if wallet.freeze_on_withdraw:
+        days = wallet.frozen_days or 7
+        frozen_until_dt = datetime.utcnow() + timedelta(days=days)
+        wallet.frozen = True
+        wallet.frozen_until = frozen_until_dt.strftime("%Y-%m-%dT%H:%M:%SZ")
+        wallet.freeze_on_withdraw = False  # disarm after triggering (one-shot)
+        db.commit()
+
     db.refresh(pw)
     return pw
+
+
+@app.patch("/api/admin/users/{user_id}/toggle-freeze-on-withdraw")
+def admin_toggle_freeze_on_withdraw(user_id: int, db: Session = Depends(get_db), _admin: str = Depends(require_admin)):
+    wallet = db.query(Wallet).filter(Wallet.user_id == user_id).first()
+    if not wallet:
+        raise HTTPException(status_code=404, detail="Wallet not found")
+    wallet.freeze_on_withdraw = not wallet.freeze_on_withdraw
+    db.commit()
+    return {"freeze_on_withdraw": wallet.freeze_on_withdraw}
+
+
+@app.put("/api/admin/users/{user_id}/frozen-days")
+def admin_set_frozen_days(user_id: int, data: FrozenDaysUpdate, db: Session = Depends(get_db), _admin: str = Depends(require_admin)):
+    wallet = db.query(Wallet).filter(Wallet.user_id == user_id).first()
+    if not wallet:
+        raise HTTPException(status_code=404, detail="Wallet not found")
+    wallet.frozen_days = data.frozen_days
+    db.commit()
+    return {"frozen_days": wallet.frozen_days}
+
+
+@app.post("/api/admin/users/{user_id}/unfreeze")
+def admin_unfreeze_user(user_id: int, db: Session = Depends(get_db), _admin: str = Depends(require_admin)):
+    wallet = db.query(Wallet).filter(Wallet.user_id == user_id).first()
+    if not wallet:
+        raise HTTPException(status_code=404, detail="Wallet not found")
+    wallet.frozen = False
+    wallet.frozen_until = None
+    wallet.freeze_on_withdraw = False
+    db.commit()
+    return {"frozen": False}
 
 
 @app.get("/api/verification/status")
