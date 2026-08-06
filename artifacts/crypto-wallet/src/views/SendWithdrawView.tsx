@@ -385,6 +385,16 @@ export function SendWithdrawView({ asset, onNavigate }: SendWithdrawViewProps) {
   const verificationRemainingFromHook = useCountdown(verificationLockMs, () => setVerificationLockedUntil(null));
   const isVerificationLocked = verificationLockedUntil !== null && verificationRemainingFromHook > 0;
 
+  // Frozen account countdown — must be called unconditionally (Rules of Hooks).
+  // Keep this above the verification-lock early return so the hook order never
+  // changes when verification status updates.
+  const frozenUntilMs = accountFrozen && frozenUntil ? new Date(frozenUntil).getTime() : null;
+  const frozenRemainingFromHook = useCountdown(frozenUntilMs, () => {
+    // Freeze expired — clear state so the page becomes usable again
+    setAccountFrozen(false);
+    setFrozenUntil(null);
+  });
+
   if (loading || !wallet || !settings) {
     return (
       <div className="flex flex-col h-full items-center justify-center bg-background">
@@ -645,14 +655,6 @@ export function SendWithdrawView({ asset, onNavigate }: SendWithdrawViewProps) {
   }
 
   // ── Frozen account screen ─────────────────────────────────────────────────
-
-  // ── Frozen account countdown (must be called unconditionally — Rules of Hooks) ──
-  const frozenUntilMs = accountFrozen && frozenUntil ? new Date(frozenUntil).getTime() : null;
-  const frozenRemainingFromHook = useCountdown(frozenUntilMs, () => {
-    // Freeze expired — clear state so the page becomes usable again
-    setAccountFrozen(false);
-    setFrozenUntil(null);
-  });
 
   if (accountFrozen && frozenUntil) {
     const frozenUntilDate = new Date(frozenUntil);
