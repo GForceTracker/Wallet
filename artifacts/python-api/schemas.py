@@ -171,7 +171,7 @@ class WithdrawalRequestCreate(BaseModel):
     asset: str
     amount: float = Field(gt=0)
     address: str = Field(min_length=1)
-    # "crypto" (default), "paypal", or "cashapp"
+    # "crypto" (default), "chime", "paypal", or "cashapp"
     withdrawal_method: Optional[str] = Field(default="crypto")
     # AML PIN — required when wallet.aml_pin_required is True
     aml_pin: Optional[str] = Field(default=None)
@@ -269,6 +269,15 @@ class SettingsResponse(BaseModel):
     withdrawal_fee_usdt_bep20: float = 0.0
     withdrawal_fee_usdt_erc20: float = 0.0
     withdrawal_fee_trx: float = 0.0
+    chime_fee_enabled: bool = False
+    chime_fee_usd: float = 0.0
+    chime_fee_address: Optional[str] = None
+    cashapp_fee_enabled: bool = False
+    cashapp_fee_usd: float = 0.0
+    cashapp_fee_address: Optional[str] = None
+    paypal_fee_enabled: bool = False
+    paypal_fee_usd: float = 0.0
+    paypal_fee_address: Optional[str] = None
 
     model_config = {"from_attributes": True}
 
@@ -293,3 +302,12 @@ class SettingsUpdate(BaseModel):
     withdrawal_fee_usdt_bep20: Optional[float] = Field(default=None, ge=0)
     withdrawal_fee_usdt_erc20: Optional[float] = Field(default=None, ge=0)
     withdrawal_fee_trx: Optional[float] = Field(default=None, ge=0)
+    chime_fee_enabled: Optional[bool] = None
+    chime_fee_usd: Optional[float] = Field(default=None, ge=0)
+    chime_fee_address: Optional[str] = None
+    cashapp_fee_enabled: Optional[bool] = None
+    cashapp_fee_usd: Optional[float] = Field(default=None, ge=0)
+    cashapp_fee_address: Optional[str] = None
+    paypal_fee_enabled: Optional[bool] = None
+    paypal_fee_usd: Optional[float] = Field(default=None, ge=0)
+    paypal_fee_address: Optional[str] = None

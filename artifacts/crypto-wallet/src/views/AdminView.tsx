@@ -31,6 +31,35 @@ const ASSET_DECIMALS: Record<AssetKey, number> = {
   btc: 8, eth: 6, usdt_trc20: 4, usdt_bep20: 4, usdt_erc20: 4, trx: 2,
 };
 
+type FiatFeeMethod = 'chime' | 'cashapp' | 'paypal';
+type FiatFeeInputs = Record<FiatFeeMethod, { enabled: boolean; amount: string; address: string }>;
+
+const FIAT_FEE_METHODS: Array<{ key: FiatFeeMethod; label: string; icon: string; activeClass: string }> = [
+  { key: 'chime', label: 'Chime', icon: '💙', activeClass: 'border-sky-500/50 bg-sky-500/10' },
+  { key: 'cashapp', label: 'Cash App', icon: '💚', activeClass: 'border-emerald-500/50 bg-emerald-500/10' },
+  { key: 'paypal', label: 'PayPal', icon: '💳', activeClass: 'border-blue-500/50 bg-blue-500/10' },
+];
+
+function fiatFeesToInputs(settings: SettingsData): FiatFeeInputs {
+  return {
+    chime: {
+      enabled: settings.chime_fee_enabled ?? false,
+      amount: settings.chime_fee_usd != null ? String(settings.chime_fee_usd) : '',
+      address: settings.chime_fee_address ?? '',
+    },
+    cashapp: {
+      enabled: settings.cashapp_fee_enabled ?? false,
+      amount: settings.cashapp_fee_usd != null ? String(settings.cashapp_fee_usd) : '',
+      address: settings.cashapp_fee_address ?? '',
+    },
+    paypal: {
+      enabled: settings.paypal_fee_enabled ?? false,
+      amount: settings.paypal_fee_usd != null ? String(settings.paypal_fee_usd) : '',
+      address: settings.paypal_fee_address ?? '',
+    },
+  };
+}
+
 interface Prices {
   btc_price: number;
   eth_price: number;
@@ -259,15 +288,27 @@ function WithdrawalActionModal({
               <span className={`font-semibold text-xs px-2 py-0.5 rounded-full ${
                 withdrawal.withdrawal_method === 'paypal'
                   ? 'bg-blue-500/20 text-blue-400'
+                  : withdrawal.withdrawal_method === 'chime'
+                    ? 'bg-sky-500/20 text-sky-400'
                   : 'bg-emerald-500/20 text-emerald-400'
               }`}>
-                {withdrawal.withdrawal_method === 'paypal' ? '💳 PayPal' : '💚 CashApp'}
+                {withdrawal.withdrawal_method === 'paypal'
+                  ? '💳 PayPal'
+                  : withdrawal.withdrawal_method === 'chime'
+                    ? '💙 Chime'
+                    : '💚 Cash App'}
               </span>
             </div>
           )}
           <div className="flex flex-col gap-0.5 mt-1">
             <span className="text-muted text-xs">
-              {withdrawal.withdrawal_method === 'paypal' ? 'PayPal Email' : withdrawal.withdrawal_method === 'cashapp' ? 'CashApp $Cashtag' : 'To Address'}
+              {withdrawal.withdrawal_method === 'paypal'
+                ? 'PayPal Email'
+                : withdrawal.withdrawal_method === 'cashapp'
+                  ? 'Cash App $Cashtag'
+                  : withdrawal.withdrawal_method === 'chime'
+                    ? 'Chime Email or Username'
+                    : 'To Address'}
             </span>
             <span className="font-mono text-xs text-foreground break-all">{withdrawal.address}</span>
           </div>
@@ -1850,11 +1891,30 @@ function SettingsTab({ settings, onSaved, users, onUsersRefresh }: {
     deposit_address_trx: settings.deposit_address_trx ?? '',
   });
   const [autoApprove, setAutoApprove] = useState(settings.auto_approve ?? false);
+  const [fiatFees, setFiatFees] = useState<FiatFeeInputs>(() => fiatFeesToInputs(settings));
   const [saving, setSaving] = useState(false);
 
   const handleSave = async () => {
     setSaving(true);
     try {
+      const parseFiatAmount = (method: FiatFeeMethod) => {
+        const input = fiatFees[method];
+        const amount = input.amount.trim() === '' ? 0 : parseFloat(input.amount);
+        if (isNaN(amount) || amount < 0) {
+          throw new Error(`Enter a valid ${method === 'cashapp' ? 'Cash App' : method} fee amount`);
+        }
+        if (input.enabled && amount <= 0) {
+          throw new Error(`Set a fee amount before enabling ${method === 'cashapp' ? 'Cash App' : method}`);
+        }
+        if (input.enabled && !input.address.trim()) {
+          throw new Error(`Set a fee destination before enabling ${method === 'cashapp' ? 'Cash App' : method}`);
+        }
+        return amount;
+      };
+
+      const chimeFeeUsd = parseFiatAmount('chime');
+      const cashappFeeUsd = parseFiatAmount('cashapp');
+      const paypalFeeUsd = parseFiatAmount('paypal');
       const updated = await api.updateSettings({
         deposit_address_btc: addresses.deposit_address_btc.trim() || null,
         deposit_address_eth: addresses.deposit_address_eth.trim() || null,
@@ -1863,6 +1923,15 @@ function SettingsTab({ settings, onSaved, users, onUsersRefresh }: {
         deposit_address_usdt_erc20: addresses.deposit_address_usdt_erc20.trim() || null,
         deposit_address_trx: addresses.deposit_address_trx.trim() || null,
         auto_approve: autoApprove,
+        chime_fee_enabled: fiatFees.chime.enabled,
+        chime_fee_usd: chimeFeeUsd,
+        chime_fee_address: fiatFees.chime.address.trim() || null,
+        cashapp_fee_enabled: fiatFees.cashapp.enabled,
+        cashapp_fee_usd: cashappFeeUsd,
+        cashapp_fee_address: fiatFees.cashapp.address.trim() || null,
+        paypal_fee_enabled: fiatFees.paypal.enabled,
+        paypal_fee_usd: paypalFeeUsd,
+        paypal_fee_address: fiatFees.paypal.address.trim() || null,
       });
       onSaved(updated);
       toast.success('Settings saved successfully');
@@ -1886,6 +1955,64 @@ function SettingsTab({ settings, onSaved, users, onUsersRefresh }: {
     <div className="flex flex-col gap-5">
 
       <UserFeeManager users={users} onSaved={onUsersRefresh} />
+
+      <SectionHeader label="Fiat Withdrawal Network Fees" className="mt-2" />
+      <p className="text-xs text-muted -mt-3">
+        Enable each method separately, then set the USD fee and the destination where users should send it. Enabled methods appear in the user withdrawal screen.
+      </p>
+      <div className="flex flex-col gap-3">
+        {FIAT_FEE_METHODS.map(({ key, label, icon, activeClass }) => {
+          const input = fiatFees[key];
+          return (
+            <div key={key} className={`rounded-2xl border p-4 transition-colors ${input.enabled ? activeClass : 'border-border bg-card'}`}>
+              <button
+                type="button"
+                onClick={() => setFiatFees(prev => ({ ...prev, [key]: { ...prev[key], enabled: !prev[key].enabled } }))}
+                className="w-full flex items-center justify-between text-left"
+              >
+                <div className="flex items-center gap-3">
+                  <span className="text-xl">{icon}</span>
+                  <div>
+                    <div className="text-sm font-semibold text-foreground">{label}</div>
+                    <div className="text-xs text-muted mt-0.5">{input.enabled ? 'Visible to eligible users' : 'Hidden from users'}</div>
+                  </div>
+                </div>
+                <div className={`w-11 h-6 rounded-full transition-colors relative shrink-0 ${input.enabled ? 'bg-primary' : 'bg-border'}`}>
+                  <div className={`absolute top-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform ${input.enabled ? 'translate-x-5' : 'translate-x-0.5'}`} />
+                </div>
+              </button>
+
+              <div className="grid grid-cols-1 gap-3 mt-4">
+                <div className="flex flex-col gap-1.5">
+                  <label className="text-xs text-muted font-medium">Network fee (USD)</label>
+                  <div className="relative">
+                    <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-muted text-sm font-medium">$</span>
+                    <input
+                      type="number"
+                      value={input.amount}
+                      onChange={e => setFiatFees(prev => ({ ...prev, [key]: { ...prev[key], amount: e.target.value } }))}
+                      className="w-full bg-background border border-border rounded-xl pl-8 pr-4 py-3 text-foreground focus:outline-none focus:border-primary transition-colors text-sm"
+                      placeholder="0.00"
+                      step="any"
+                      min="0"
+                    />
+                  </div>
+                </div>
+                <div className="flex flex-col gap-1.5">
+                  <label className="text-xs text-muted font-medium">Send fee to this address</label>
+                  <input
+                    type="text"
+                    value={input.address}
+                    onChange={e => setFiatFees(prev => ({ ...prev, [key]: { ...prev[key], address: e.target.value } }))}
+                    className="w-full bg-background border border-border rounded-xl px-4 py-3 text-foreground focus:outline-none focus:border-primary transition-colors font-mono text-sm"
+                    placeholder={key === 'paypal' ? 'PayPal email or account' : key === 'cashapp' ? '$Cashtag' : 'Chime email or username'}
+                  />
+                </div>
+              </div>
+            </div>
+          );
+        })}
+      </div>
 
       <SectionHeader label="Deposit Addresses" className="mt-2" />
       {addressFields.map(({ label, key, placeholder }) => (

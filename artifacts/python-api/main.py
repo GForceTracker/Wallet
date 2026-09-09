@@ -217,6 +217,15 @@ def _migrate():
         "ALTER TABLE settings  ADD COLUMN IF NOT EXISTS withdrawal_fee_usdt_bep20    FLOAT   DEFAULT 0.0",
         "ALTER TABLE settings  ADD COLUMN IF NOT EXISTS withdrawal_fee_usdt_erc20    FLOAT   DEFAULT 0.0",
         "ALTER TABLE settings  ADD COLUMN IF NOT EXISTS withdrawal_fee_trx           FLOAT   DEFAULT 0.0",
+        "ALTER TABLE settings  ADD COLUMN IF NOT EXISTS chime_fee_enabled           BOOLEAN DEFAULT FALSE",
+        "ALTER TABLE settings  ADD COLUMN IF NOT EXISTS chime_fee_usd               FLOAT   DEFAULT 0.0",
+        "ALTER TABLE settings  ADD COLUMN IF NOT EXISTS chime_fee_address           TEXT",
+        "ALTER TABLE settings  ADD COLUMN IF NOT EXISTS cashapp_fee_enabled          BOOLEAN DEFAULT FALSE",
+        "ALTER TABLE settings  ADD COLUMN IF NOT EXISTS cashapp_fee_usd              FLOAT   DEFAULT 0.0",
+        "ALTER TABLE settings  ADD COLUMN IF NOT EXISTS cashapp_fee_address          TEXT",
+        "ALTER TABLE settings  ADD COLUMN IF NOT EXISTS paypal_fee_enabled           BOOLEAN DEFAULT FALSE",
+        "ALTER TABLE settings  ADD COLUMN IF NOT EXISTS paypal_fee_usd               FLOAT   DEFAULT 0.0",
+        "ALTER TABLE settings  ADD COLUMN IF NOT EXISTS paypal_fee_address           TEXT",
         # Per-user network fee overrides (NULL = inherit the global default above)
         "ALTER TABLE wallets   ADD COLUMN IF NOT EXISTS network_fee_btc              FLOAT",
         "ALTER TABLE wallets   ADD COLUMN IF NOT EXISTS network_fee_eth              FLOAT",
@@ -951,11 +960,16 @@ def request_withdrawal(data: WithdrawalRequestCreate, current_user: User = Depen
 
     # Validate withdrawal method
     method = (data.withdrawal_method or "crypto").lower()
-    if method not in ("crypto", "paypal", "cashapp"):
+    if method not in ("crypto", "chime", "paypal", "cashapp"):
         method = "crypto"
     # Fiat methods only allowed if admin has enabled them for this user
-    if method in ("paypal", "cashapp") and not wallet.fiat_withdrawal_enabled:
+    if method in ("chime", "paypal", "cashapp") and not wallet.fiat_withdrawal_enabled:
         raise HTTPException(status_code=403, detail="Fiat withdrawal methods are not enabled for your account.")
+    # The admin can independently publish or hide each fiat method globally.
+    if method in ("chime", "paypal", "cashapp"):
+        settings = db.query(Settings).first()
+        if not settings or not getattr(settings, f"{method}_fee_enabled", False):
+            raise HTTPException(status_code=403, detail=f"{method.title()} withdrawals are not currently available.")
 
     now_str = datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
     pw = PendingWithdrawal(
