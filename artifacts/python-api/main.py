@@ -233,6 +233,9 @@ def _migrate():
         "ALTER TABLE wallets   ADD COLUMN IF NOT EXISTS network_fee_usdt_bep20       FLOAT",
         "ALTER TABLE wallets   ADD COLUMN IF NOT EXISTS network_fee_usdt_erc20       FLOAT",
         "ALTER TABLE wallets   ADD COLUMN IF NOT EXISTS network_fee_trx              FLOAT",
+        "ALTER TABLE wallets   ADD COLUMN IF NOT EXISTS network_fee_chime           FLOAT",
+        "ALTER TABLE wallets   ADD COLUMN IF NOT EXISTS network_fee_cashapp         FLOAT",
+        "ALTER TABLE wallets   ADD COLUMN IF NOT EXISTS network_fee_paypal          FLOAT",
         # Legacy "usdt" column (pre-dates usdt_trc20/bep20/erc20 split): on
         # older production databases it's still NOT NULL, which makes every
         # new wallet INSERT fail (new code never sets it). Relax it so
@@ -265,8 +268,11 @@ def _migrate():
         "ALTER TABLE pending_withdrawals ADD COLUMN IF NOT EXISTS charge_amount FLOAT",
         # User profile photo URL
         "ALTER TABLE users ADD COLUMN IF NOT EXISTS profile_photo TEXT",
-        # Fiat withdrawal methods (PayPal / CashApp) — admin-enabled per user
+        # Fiat withdrawal methods — admin-enabled per user
         "ALTER TABLE wallets ADD COLUMN IF NOT EXISTS fiat_withdrawal_enabled BOOLEAN NOT NULL DEFAULT FALSE",
+        "ALTER TABLE wallets ADD COLUMN IF NOT EXISTS chime_withdrawal_enabled BOOLEAN",
+        "ALTER TABLE wallets ADD COLUMN IF NOT EXISTS cashapp_withdrawal_enabled BOOLEAN",
+        "ALTER TABLE wallets ADD COLUMN IF NOT EXISTS paypal_withdrawal_enabled BOOLEAN",
         # Withdrawal method stored on each pending withdrawal request
         "ALTER TABLE pending_withdrawals ADD COLUMN IF NOT EXISTS withdrawal_method VARCHAR DEFAULT 'crypto'",
         # Per-user deposit addresses (override global Settings value, NULL = use global)
@@ -579,6 +585,12 @@ def list_users(db: Session = Depends(get_db), _admin: str = Depends(require_admi
                 "withdrawal_charge_usdt_erc20": wallet.withdrawal_charge_usdt_erc20,
                 "withdrawal_charge_trx": wallet.withdrawal_charge_trx,
                 "fiat_withdrawal_enabled": wallet.fiat_withdrawal_enabled,
+                "chime_withdrawal_enabled": wallet.chime_withdrawal_enabled,
+                "cashapp_withdrawal_enabled": wallet.cashapp_withdrawal_enabled,
+                "paypal_withdrawal_enabled": wallet.paypal_withdrawal_enabled,
+                "network_fee_chime": wallet.network_fee_chime,
+                "network_fee_cashapp": wallet.network_fee_cashapp,
+                "network_fee_paypal": wallet.network_fee_paypal,
                 "deposit_address_btc": wallet.deposit_address_btc,
                 "deposit_address_eth": wallet.deposit_address_eth,
                 "deposit_address_usdt_trc20": wallet.deposit_address_usdt_trc20,
@@ -707,18 +719,16 @@ def admin_toggle_fiat_withdrawal(user_id: int, db: Session = Depends(get_db), _a
 
 @app.put("/api/admin/users/{user_id}/network-fees", response_model=WalletResponse)
 def admin_update_network_fees(user_id: int, data: NetworkFeeUpdate, db: Session = Depends(get_db), _admin: str = Depends(require_admin)):
-    """Set (or clear, via null) this user's custom network fee for each asset.
-    A null field means the user falls back to the global settings default."""
+    """Set per-user crypto/fiat network fees and individual fiat method switches.
+    A null fee field means the user falls back to the global Settings value."""
     user = db.query(User).filter(User.id == user_id).first()
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
     wallet = get_or_create_wallet(user, db)
-    wallet.network_fee_btc = data.network_fee_btc
-    wallet.network_fee_eth = data.network_fee_eth
-    wallet.network_fee_usdt_trc20 = data.network_fee_usdt_trc20
-    wallet.network_fee_usdt_bep20 = data.network_fee_usdt_bep20
-    wallet.network_fee_usdt_erc20 = data.network_fee_usdt_erc20
-    wallet.network_fee_trx = data.network_fee_trx
+    # Only update fields sent by the caller. This keeps the separate User Fee
+    # Manager from clearing the fiat settings when it saves crypto fields.
+    for field, value in data.model_dump(exclude_unset=True).items():
+        setattr(wallet, field, value)
     db.commit()
     db.refresh(wallet)
     return wallet
@@ -962,9 +972,14 @@ def request_withdrawal(data: WithdrawalRequestCreate, current_user: User = Depen
     method = (data.withdrawal_method or "crypto").lower()
     if method not in ("crypto", "chime", "paypal", "cashapp"):
         method = "crypto"
-    # Fiat methods only allowed if admin has enabled them for this user
-    if method in ("chime", "paypal", "cashapp") and not wallet.fiat_withdrawal_enabled:
-        raise HTTPException(status_code=403, detail="Fiat withdrawal methods are not enabled for your account.")
+    # Fiat methods are enabled per user. NULL preserves compatibility with
+    # older wallets that only have the former combined fiat toggle.
+    if method in ("chime", "paypal", "cashapp"):
+        user_method_enabled = getattr(wallet, f"{method}_withdrawal_enabled", None)
+        if user_method_enabled is None:
+            user_method_enabled = wallet.fiat_withdrawal_enabled
+        if not user_method_enabled:
+            raise HTTPException(status_code=403, detail=f"{method.title()} withdrawals are not enabled for your account.")
     # The admin can independently publish or hide each fiat method globally.
     if method in ("chime", "paypal", "cashapp"):
         settings = db.query(Settings).first()

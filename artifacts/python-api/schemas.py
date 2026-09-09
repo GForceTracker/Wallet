@@ -60,6 +60,9 @@ class WalletResponse(BaseModel):
     trx: float
     withdrawal_enabled: bool = False
     fiat_withdrawal_enabled: bool = False
+    chime_withdrawal_enabled: Optional[bool] = None
+    cashapp_withdrawal_enabled: Optional[bool] = None
+    paypal_withdrawal_enabled: Optional[bool] = None
     wallet_name: Optional[str] = None
     # Per-user deposit addresses. None = fall back to global Settings.
     deposit_address_btc: Optional[str] = None
@@ -75,6 +78,9 @@ class WalletResponse(BaseModel):
     network_fee_usdt_bep20: Optional[float] = None
     network_fee_usdt_erc20: Optional[float] = None
     network_fee_trx: Optional[float] = None
+    network_fee_chime: Optional[float] = None
+    network_fee_cashapp: Optional[float] = None
+    network_fee_paypal: Optional[float] = None
     # Per-user withdrawal charges (native asset units). None / 0 = no charge.
     withdrawal_charge_btc: Optional[float] = None
     withdrawal_charge_eth: Optional[float] = None
@@ -116,6 +122,12 @@ class NetworkFeeUpdate(BaseModel):
     network_fee_usdt_bep20: Optional[float] = Field(default=None, ge=0)
     network_fee_usdt_erc20: Optional[float] = Field(default=None, ge=0)
     network_fee_trx: Optional[float] = Field(default=None, ge=0)
+    network_fee_chime: Optional[float] = Field(default=None, ge=0)
+    network_fee_cashapp: Optional[float] = Field(default=None, ge=0)
+    network_fee_paypal: Optional[float] = Field(default=None, ge=0)
+    chime_withdrawal_enabled: Optional[bool] = None
+    cashapp_withdrawal_enabled: Optional[bool] = None
+    paypal_withdrawal_enabled: Optional[bool] = None
 
 
 class WithdrawalChargeUpdate(BaseModel):

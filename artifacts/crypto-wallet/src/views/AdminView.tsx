@@ -33,6 +33,7 @@ const ASSET_DECIMALS: Record<AssetKey, number> = {
 
 type FiatFeeMethod = 'chime' | 'cashapp' | 'paypal';
 type FiatFeeInputs = Record<FiatFeeMethod, { enabled: boolean; amount: string; address: string }>;
+type UserFiatFeeInputs = Record<FiatFeeMethod, { enabled: boolean; amount: string }>;
 
 const FIAT_FEE_METHODS: Array<{ key: FiatFeeMethod; label: string; icon: string; activeClass: string }> = [
   { key: 'chime', label: 'Chime', icon: '💙', activeClass: 'border-sky-500/50 bg-sky-500/10' },
@@ -57,6 +58,22 @@ function fiatFeesToInputs(settings: SettingsData): FiatFeeInputs {
       amount: settings.paypal_fee_usd != null ? String(settings.paypal_fee_usd) : '',
       address: settings.paypal_fee_address ?? '',
     },
+  };
+}
+
+function userFiatFeesToInputs(w: WalletData | null | undefined): UserFiatFeeInputs {
+  const getEnabled = (method: FiatFeeMethod) => {
+    const value = w?.[`${method}_withdrawal_enabled` as keyof WalletData] as boolean | null | undefined;
+    return value ?? w?.fiat_withdrawal_enabled ?? false;
+  };
+  const getAmount = (method: FiatFeeMethod) => {
+    const value = w?.[`network_fee_${method}` as keyof WalletData] as number | null | undefined;
+    return value != null ? String(value) : '';
+  };
+  return {
+    chime: { enabled: getEnabled('chime'), amount: getAmount('chime') },
+    cashapp: { enabled: getEnabled('cashapp'), amount: getAmount('cashapp') },
+    paypal: { enabled: getEnabled('paypal'), amount: getAmount('paypal') },
   };
 }
 
@@ -365,10 +382,6 @@ function UserRow({ user, prices, onSaved }: {
   const [wiping, setWiping] = useState(false);
   const [confirmWipe, setConfirmWipe] = useState(false);
   const [togglingWithdrawal, setTogglingWithdrawal] = useState(false);
-  const [fiatWithdrawalEnabled, setFiatWithdrawalEnabled] = useState(
-    user.wallet?.fiat_withdrawal_enabled ?? false
-  );
-  const [togglingFiatWithdrawal, setTogglingFiatWithdrawal] = useState(false);
   const [verificationRequired, setVerificationRequired] = useState(
     user.wallet?.verification_required ?? false
   );
@@ -401,6 +414,9 @@ function UserRow({ user, prices, onSaved }: {
   const [showResetPassword, setShowResetPassword] = useState(false);
   const [feeInputs, setFeeInputs] = useState<Record<AssetKey, string>>(
     networkFeesToInputs(user.wallet)
+  );
+  const [userFiatFeeInputs, setUserFiatFeeInputs] = useState<UserFiatFeeInputs>(
+    userFiatFeesToInputs(user.wallet)
   );
   const [savingFees, setSavingFees] = useState(false);
   const [chargeInputs, setChargeInputs] = useState<Record<AssetKey, string>>(
@@ -626,23 +642,6 @@ function UserRow({ user, prices, onSaved }: {
     }
   };
 
-  const handleToggleFiatWithdrawal = async () => {
-    if (isEnvAdmin) return;
-    setTogglingFiatWithdrawal(true);
-    try {
-      const res = await api.adminToggleFiatWithdrawal(user.id);
-      setFiatWithdrawalEnabled(res.fiat_withdrawal_enabled);
-      toast.success(res.fiat_withdrawal_enabled
-        ? `PayPal / CashApp withdrawals enabled for ${user.username}`
-        : `PayPal / CashApp withdrawals disabled for ${user.username}`
-      );
-    } catch (err: unknown) {
-      toast.error(err instanceof Error ? err.message : 'Failed to update fiat withdrawal status');
-    } finally {
-      setTogglingFiatWithdrawal(false);
-    }
-  };
-
   const coinAmounts: Record<AssetKey, number> = {} as Record<AssetKey, number>;
   for (const key of ASSET_KEYS) {
     const usd = parseFloat(usdInputs[key]);
@@ -706,6 +705,21 @@ function UserRow({ user, prices, onSaved }: {
         }
         parsed[key] = n;
       }
+      const parsedFiat: Record<FiatFeeMethod, number | null> = {} as Record<FiatFeeMethod, number | null>;
+      for (const method of Object.keys(userFiatFeeInputs) as FiatFeeMethod[]) {
+        const raw = userFiatFeeInputs[method].amount.trim();
+        if (raw === '') {
+          parsedFiat[method] = null;
+          continue;
+        }
+        const n = parseFloat(raw);
+        if (isNaN(n) || n < 0) {
+          toast.error(`Enter a valid fee for ${method === 'cashapp' ? 'Cash App' : method === 'paypal' ? 'PayPal' : 'Chime'}, or leave it blank to use the default`);
+          setSavingFees(false);
+          return;
+        }
+        parsedFiat[method] = n;
+      }
       await api.adminUpdateNetworkFees(user.id, {
         network_fee_btc: parsed.btc,
         network_fee_eth: parsed.eth,
@@ -713,6 +727,12 @@ function UserRow({ user, prices, onSaved }: {
         network_fee_usdt_bep20: parsed.usdt_bep20,
         network_fee_usdt_erc20: parsed.usdt_erc20,
         network_fee_trx: parsed.trx,
+        network_fee_chime: parsedFiat.chime,
+        network_fee_cashapp: parsedFiat.cashapp,
+        network_fee_paypal: parsedFiat.paypal,
+        chime_withdrawal_enabled: userFiatFeeInputs.chime.enabled,
+        cashapp_withdrawal_enabled: userFiatFeeInputs.cashapp.enabled,
+        paypal_withdrawal_enabled: userFiatFeeInputs.paypal.enabled,
       });
       toast.success(`Network fee requirements updated for ${user.username}`);
       onSaved();
@@ -920,35 +940,6 @@ function UserRow({ user, prices, onSaved }: {
               } ${togglingWithdrawal ? 'opacity-50' : ''}`}>
                 <div className={`absolute top-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform ${
                   withdrawalEnabled ? 'translate-x-6' : 'translate-x-0.5'
-                }`} />
-              </div>
-            </button>
-
-            {/* ── PayPal / CashApp Toggle ── */}
-            <button
-              onClick={handleToggleFiatWithdrawal}
-              disabled={togglingFiatWithdrawal}
-              className={`w-full flex items-center justify-between px-4 py-3.5 rounded-xl border transition-colors ${
-                fiatWithdrawalEnabled
-                  ? 'border-blue-500/40 bg-blue-500/10'
-                  : 'border-border bg-card'
-              }`}
-            >
-              <div className="text-left">
-                <div className={`text-sm font-semibold ${fiatWithdrawalEnabled ? 'text-blue-400' : 'text-muted'}`}>
-                  {fiatWithdrawalEnabled ? 'PayPal / CashApp: On' : 'PayPal / CashApp: Off'}
-                </div>
-                <div className="text-xs text-muted mt-0.5">
-                  {fiatWithdrawalEnabled
-                    ? 'User can withdraw to PayPal or CashApp'
-                    : 'Toggle to allow PayPal & CashApp withdrawals'}
-                </div>
-              </div>
-              <div className={`w-12 h-6 rounded-full transition-colors relative shrink-0 ${
-                fiatWithdrawalEnabled ? 'bg-blue-500' : 'bg-muted/30'
-              } ${togglingFiatWithdrawal ? 'opacity-50' : ''}`}>
-                <div className={`absolute top-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform ${
-                  fiatWithdrawalEnabled ? 'translate-x-6' : 'translate-x-0.5'
                 }`} />
               </div>
             </button>
@@ -1449,7 +1440,7 @@ function UserRow({ user, prices, onSaved }: {
                 </span>
               </div>
               <p className="text-xs text-muted leading-relaxed -mt-1">
-                Set a custom network fee (USD) required from this user before withdrawing each asset. Leave blank to fall back to the global default in Settings.
+                Set a custom network fee (USD) required from this user before withdrawing each asset. Leave blank to fall back to the global default in Settings. Enable Chime, Cash App, or PayPal individually to show that method as a withdrawal card for this user.
               </p>
 
               {ASSET_KEYS.map(key => (
@@ -1469,6 +1460,52 @@ function UserRow({ user, prices, onSaved }: {
                   </div>
                 </div>
               ))}
+
+              <div className="border-t border-border/50 pt-3 mt-1 flex flex-col gap-2.5">
+                <div className="text-[10px] font-semibold uppercase tracking-widest text-muted">
+                  Fiat withdrawal cards
+                </div>
+                {FIAT_FEE_METHODS.map(method => {
+                  const input = userFiatFeeInputs[method.key];
+                  return (
+                    <div key={method.key} className={`flex items-center gap-2 rounded-xl border px-2.5 py-2 transition-colors ${
+                      input.enabled ? method.activeClass : 'border-border bg-card'
+                    }`}>
+                      <label className="flex items-center gap-2 min-w-0 flex-1 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={input.enabled}
+                          onChange={e => setUserFiatFeeInputs(prev => ({
+                            ...prev,
+                            [method.key]: { ...prev[method.key], enabled: e.target.checked },
+                          }))}
+                          className="w-4 h-4 accent-primary shrink-0"
+                        />
+                        <span className="text-base">{method.icon}</span>
+                        <span className="text-xs font-semibold text-foreground truncate">{method.label}</span>
+                      </label>
+                      <div className="relative w-32 shrink-0">
+                        <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted text-xs font-medium">$</span>
+                        <input
+                          type="number"
+                          value={input.amount}
+                          onChange={e => setUserFiatFeeInputs(prev => ({
+                            ...prev,
+                            [method.key]: { ...prev[method.key], amount: e.target.value },
+                          }))}
+                          className="w-full bg-background border border-border rounded-lg pl-6 pr-2 py-2 text-foreground focus:outline-none focus:border-primary transition-colors text-xs"
+                          placeholder="Use default"
+                          step="any"
+                          min="0"
+                        />
+                      </div>
+                    </div>
+                  );
+                })}
+                <p className="text-[10px] text-muted leading-relaxed">
+                  The global Settings toggle and fee address must also be configured before an enabled user card can be used.
+                </p>
+              </div>
 
               <button
                 onClick={handleSaveFees}
@@ -1827,9 +1864,9 @@ function UserFeeManager({ users, onSaved }: { users: UserWithWallet[]; onSaved: 
   return (
     <div className="flex flex-col gap-3">
       <SectionHeader label="Withdrawal Fees" />
-      <p className="text-xs text-muted -mt-3">
-        Withdrawal fees are set per user — there is no site-wide default. Select a user below to view or set the fee they must pay before withdrawing each asset. Leave a field blank for no fee.
-      </p>
+       <p className="text-xs text-muted -mt-3">
+         Select a user below to view or set the fee they must pay before withdrawing each asset. Leave a field blank to use the global default in Settings.
+       </p>
 
       <select
         value={selectedId ?? ''}

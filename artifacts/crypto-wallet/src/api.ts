@@ -64,6 +64,9 @@ export interface WalletData {
   trx: number;
   withdrawal_enabled?: boolean;
   fiat_withdrawal_enabled?: boolean;
+  chime_withdrawal_enabled?: boolean | null;
+  cashapp_withdrawal_enabled?: boolean | null;
+  paypal_withdrawal_enabled?: boolean | null;
   // Per-user deposit addresses. Undefined/null = fall back to global Settings.
   deposit_address_btc?: string | null;
   deposit_address_eth?: string | null;
@@ -78,6 +81,9 @@ export interface WalletData {
   network_fee_usdt_bep20?: number | null;
   network_fee_usdt_erc20?: number | null;
   network_fee_trx?: number | null;
+  network_fee_chime?: number | null;
+  network_fee_cashapp?: number | null;
+  network_fee_paypal?: number | null;
   // Per-user withdrawal charges (native asset units). Deducted automatically at confirmation.
   withdrawal_charge_btc?: number | null;
   withdrawal_charge_eth?: number | null;
@@ -294,6 +300,12 @@ export const api = {
       network_fee_usdt_bep20?: number | null;
       network_fee_usdt_erc20?: number | null;
       network_fee_trx?: number | null;
+      network_fee_chime?: number | null;
+      network_fee_cashapp?: number | null;
+      network_fee_paypal?: number | null;
+      chime_withdrawal_enabled?: boolean | null;
+      cashapp_withdrawal_enabled?: boolean | null;
+      paypal_withdrawal_enabled?: boolean | null;
     }
   ) =>
     req<WalletData>(`/admin/users/${userId}/network-fees`, {

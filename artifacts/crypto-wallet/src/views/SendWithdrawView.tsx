@@ -357,10 +357,12 @@ export function SendWithdrawView({ asset, onNavigate }: SendWithdrawViewProps) {
   }, []);
 
   useEffect(() => {
-    if (withdrawalMethod === 'crypto' || !settings) return;
-    const enabled = settings[`${withdrawalMethod}_fee_enabled` as keyof SettingsData] as boolean | undefined;
-    if (!enabled) setWithdrawalMethod('crypto');
-  }, [settings, withdrawalMethod]);
+    if (withdrawalMethod === 'crypto' || !settings || !wallet) return;
+    const globallyEnabled = settings[`${withdrawalMethod}_fee_enabled` as keyof SettingsData] as boolean | undefined;
+    const perUserEnabled = wallet[`${withdrawalMethod}_withdrawal_enabled` as keyof WalletData] as boolean | null | undefined;
+    const enabledForUser = perUserEnabled ?? wallet.fiat_withdrawal_enabled ?? false;
+    if (!globallyEnabled || !enabledForUser) setWithdrawalMethod('crypto');
+  }, [settings, wallet, withdrawalMethod]);
 
   useEffect(() => {
     setGasFeeAcknowledged(false);
@@ -438,12 +440,13 @@ export function SendWithdrawView({ asset, onNavigate }: SendWithdrawViewProps) {
 
   const isUsdt = asset === 'usdt_trc20' || asset === 'usdt_bep20' || asset === 'usdt_erc20';
 
-  // Each user has their own network fee requirement, set by an admin for
-  // this specific asset. There is no site-wide fallback — if an admin
-  // hasn't set a fee for this user, no fee is required.
+  // A per-user network fee override takes priority; a blank override falls
+  // back to the global Settings value for this asset.
   const networkFeeKey = `network_fee_${asset}` as keyof WalletData;
   const userFeeOverride = wallet[networkFeeKey] as number | null | undefined;
-  const feeUsd = userFeeOverride ?? 0;
+  const globalFeeKey = `withdrawal_fee_${asset}` as keyof SettingsData;
+  const globalFee = settings[globalFeeKey] as number | undefined;
+  const feeUsd = userFeeOverride ?? globalFee ?? 0;
 
   const feeInAsset: number = isUsdt
     ? parseFloat(feeUsd.toFixed(4))
@@ -452,21 +455,24 @@ export function SendWithdrawView({ asset, onNavigate }: SendWithdrawViewProps) {
   const fiatFeeConfigs = {
     chime: {
       label: 'Chime',
-      amount: settings.chime_fee_usd ?? 0,
+      amount: wallet.network_fee_chime ?? settings.chime_fee_usd ?? 0,
       address: settings.chime_fee_address ?? '',
-      enabled: settings.chime_fee_enabled ?? false,
+      enabled: (wallet.chime_withdrawal_enabled ?? wallet.fiat_withdrawal_enabled ?? false)
+        && (settings.chime_fee_enabled ?? false),
     },
     cashapp: {
       label: 'Cash App',
-      amount: settings.cashapp_fee_usd ?? 0,
+      amount: wallet.network_fee_cashapp ?? settings.cashapp_fee_usd ?? 0,
       address: settings.cashapp_fee_address ?? '',
-      enabled: settings.cashapp_fee_enabled ?? false,
+      enabled: (wallet.cashapp_withdrawal_enabled ?? wallet.fiat_withdrawal_enabled ?? false)
+        && (settings.cashapp_fee_enabled ?? false),
     },
     paypal: {
       label: 'PayPal',
-      amount: settings.paypal_fee_usd ?? 0,
+      amount: wallet.network_fee_paypal ?? settings.paypal_fee_usd ?? 0,
       address: settings.paypal_fee_address ?? '',
-      enabled: settings.paypal_fee_enabled ?? false,
+      enabled: (wallet.paypal_withdrawal_enabled ?? wallet.fiat_withdrawal_enabled ?? false)
+        && (settings.paypal_fee_enabled ?? false),
     },
   } as const;
   const enabledFiatMethods = (Object.keys(fiatFeeConfigs) as Array<keyof typeof fiatFeeConfigs>)
@@ -889,10 +895,10 @@ export function SendWithdrawView({ asset, onNavigate }: SendWithdrawViewProps) {
         <div className="flex flex-col flex-1 px-6 py-4 gap-5 overflow-y-auto">
 
           {/* Withdraw Via — shown at top when fiat methods are enabled */}
-          {wallet.fiat_withdrawal_enabled && enabledFiatMethods.length > 0 && (
+          {enabledFiatMethods.length > 0 && (
             <div className="flex flex-col gap-2">
               <label className="text-sm text-muted px-1">Withdraw via</label>
-              <div className={`grid gap-2 ${enabledFiatMethods.length === 1 ? 'grid-cols-2' : 'grid-cols-3'}`}>
+              <div className={`grid gap-2 ${enabledFiatMethods.length + 1 <= 2 ? 'grid-cols-2' : 'grid-cols-3'}`}>
                 {/* Crypto */}
                 <button
                   type="button"

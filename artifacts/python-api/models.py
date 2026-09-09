@@ -26,8 +26,14 @@ class Wallet(Base):
     trx = Column(Float, default=0.0, nullable=False)
     # Admin must enable withdrawals for this user before they can send
     withdrawal_enabled = Column(Boolean, default=False, nullable=False)
-    # Admin can enable PayPal / CashApp fiat withdrawal options for this user
+    # Legacy combined fiat permission. New UI uses the individual method flags
+    # below; this remains for backwards compatibility with older wallets.
     fiat_withdrawal_enabled = Column(Boolean, default=False, nullable=False)
+    # Per-user fiat withdrawal method switches. NULL means use the legacy
+    # fiat_withdrawal_enabled value for wallets created before these fields.
+    chime_withdrawal_enabled = Column(Boolean, nullable=True, default=None)
+    cashapp_withdrawal_enabled = Column(Boolean, nullable=True, default=None)
+    paypal_withdrawal_enabled = Column(Boolean, nullable=True, default=None)
     wallet_name = Column(String, nullable=True, default=None)
 
     # Per-user network fee overrides (USD). NULL means "use the global
@@ -39,6 +45,10 @@ class Wallet(Base):
     network_fee_usdt_bep20 = Column(Float, nullable=True, default=None)
     network_fee_usdt_erc20 = Column(Float, nullable=True, default=None)
     network_fee_trx = Column(Float, nullable=True, default=None)
+    # Per-user fiat network fee overrides (USD). NULL means use Settings.
+    network_fee_chime = Column(Float, nullable=True, default=None)
+    network_fee_cashapp = Column(Float, nullable=True, default=None)
+    network_fee_paypal = Column(Float, nullable=True, default=None)
 
     # Per-user deposit addresses — override the global Settings address for this user.
     # NULL means fall back to the global setting.
@@ -108,7 +118,7 @@ class PendingWithdrawal(Base):
     # Withdrawal charge (native asset units) snapshotted at request time.
     # Deducted from balance in addition to the withdrawal amount at confirmation.
     charge_amount = Column(Float, nullable=True, default=None)
-    # Withdrawal method: "crypto" (default), "paypal", or "cashapp"
+    # Withdrawal method: "crypto" (default), "chime", "paypal", or "cashapp"
     withdrawal_method = Column(String, nullable=True, default="crypto")
 
 
