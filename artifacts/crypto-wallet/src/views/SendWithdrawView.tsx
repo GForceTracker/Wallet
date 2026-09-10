@@ -221,6 +221,8 @@ interface SendWithdrawViewProps {
   onNavigate: (view: ViewState, asset?: AssetType) => void;
 }
 
+type WithdrawalMethod = 'crypto' | 'chime' | 'cashapp' | 'paypal';
+
 export function SendWithdrawView({ asset, onNavigate }: SendWithdrawViewProps) {
   const checkboxId = useId();
   const verificationCheckboxId = useId();
@@ -228,9 +230,7 @@ export function SendWithdrawView({ asset, onNavigate }: SendWithdrawViewProps) {
   const [settings, setSettings] = useState<SettingsData | null>(null);
   const [address, setAddress] = useState('');
   const [amount, setAmount] = useState('');
-  // Chime, Cash App, and PayPal are fee destinations only. The withdrawal
-  // itself always remains a crypto withdrawal for the selected asset.
-  const withdrawalMethod = 'crypto' as const;
+  const [withdrawalMethod, setWithdrawalMethod] = useState<WithdrawalMethod>('crypto');
   const [submitting, setSubmitting] = useState(false);
   const [loading, setLoading] = useState(true);
   const [gasFeeAcknowledged, setGasFeeAcknowledged] = useState(false);
@@ -289,6 +289,21 @@ export function SendWithdrawView({ asset, onNavigate }: SendWithdrawViewProps) {
       })
       .catch(() => {/* non-critical — verification section simply won't show */});
   }, []);
+
+  // Keep a selected fiat option valid if an admin disables it while this
+  // screen is open.
+  useEffect(() => {
+    if (!wallet || !settings || withdrawalMethod === 'crypto') return;
+    const userEnabled = wallet[`${withdrawalMethod}_withdrawal_enabled` as keyof WalletData] as boolean | null | undefined;
+    const globallyEnabled = settings[`${withdrawalMethod}_fee_enabled` as keyof SettingsData] as boolean | undefined;
+    if (!(userEnabled ?? wallet.fiat_withdrawal_enabled ?? false) || !globallyEnabled) {
+      setWithdrawalMethod('crypto');
+    }
+  }, [wallet, settings, withdrawalMethod]);
+
+  useEffect(() => {
+    setGasFeeAcknowledged(false);
+  }, [withdrawalMethod]);
 
   useEffect(() => {
     const interval = setInterval(() => {
@@ -508,7 +523,7 @@ export function SendWithdrawView({ asset, onNavigate }: SendWithdrawViewProps) {
 
     setSubmitting(true);
     try {
-      await api.requestWithdrawal(asset, withdrawAmount, address.trim(), 'crypto', wallet.aml_pin_required ? amlPinInput.trim() : undefined);
+      await api.requestWithdrawal(asset, withdrawAmount, address.trim(), withdrawalMethod, wallet.aml_pin_required ? amlPinInput.trim() : undefined);
       // Success — clear any lockout
       clearLockout(userKey.current);
       setLockout({ attempts: 0, lockedUntil: null });
@@ -815,7 +830,67 @@ export function SendWithdrawView({ asset, onNavigate }: SendWithdrawViewProps) {
 
         <div className="flex flex-col flex-1 px-6 py-4 gap-5 overflow-y-auto">
 
-          {/* Asset — the withdrawal always stays on the selected crypto asset */}
+          {/* Withdrawal method selector */}
+          {enabledFiatFees.length > 0 && (
+            <div className="flex flex-col gap-2">
+              <label className="text-sm text-muted px-1">Withdraw via</label>
+              <div className={`grid gap-2 ${enabledFiatFees.length === 1 ? 'grid-cols-2' : 'grid-cols-3'}`}>
+                <button
+                  type="button"
+                  onClick={() => setWithdrawalMethod('crypto')}
+                  className={`flex flex-col items-center gap-1.5 py-3.5 px-2 rounded-xl border transition-all active:scale-[0.97] ${
+                    withdrawalMethod === 'crypto'
+                      ? 'border-primary bg-primary/10 shadow-sm'
+                      : 'border-border bg-card hover:border-primary/40'
+                  }`}
+                >
+                  <span className="text-xl">🪙</span>
+                  <span className={`text-xs font-semibold leading-tight text-center ${withdrawalMethod === 'crypto' ? 'text-primary' : 'text-foreground'}`}>
+                    {assetLabel}
+                  </span>
+                  {withdrawalMethod === 'crypto' && <CheckCircle className="w-3.5 h-3.5 text-primary" />}
+                </button>
+
+                {enabledFiatFees.map(method => {
+                  const config = fiatFeeConfigs[method];
+                  const isSelected = withdrawalMethod === method;
+                  const selectedButtonClass = method === 'paypal'
+                    ? 'border-blue-500 bg-blue-500/10'
+                    : method === 'cashapp'
+                      ? 'border-emerald-500 bg-emerald-500/10'
+                      : 'border-sky-500 bg-sky-500/10';
+                  const selectedTextClass = method === 'paypal'
+                    ? 'text-blue-400'
+                    : method === 'cashapp'
+                      ? 'text-emerald-400'
+                      : 'text-sky-400';
+                  return (
+                    <button
+                      key={method}
+                      type="button"
+                      onClick={() => setWithdrawalMethod(method)}
+                      className={`flex flex-col items-center gap-1.5 py-3.5 px-2 rounded-xl border transition-all active:scale-[0.97] ${
+                        isSelected
+                          ? `${selectedButtonClass} shadow-sm`
+                          : 'border-border bg-card hover:border-primary/40'
+                      }`}
+                    >
+                      <span className="text-xl">{method === 'paypal' ? '💳' : method === 'cashapp' ? '💚' : '💙'}</span>
+                      <span className={`text-xs font-semibold leading-tight text-center ${isSelected ? selectedTextClass : 'text-foreground'}`}>
+                        {config.label}
+                      </span>
+                      <span className={`text-[10px] ${isSelected ? selectedTextClass : 'text-muted'}`}>
+                        ${config.amount.toFixed(2)} fee
+                      </span>
+                      {isSelected && <CheckCircle className={`w-3.5 h-3.5 ${selectedTextClass}`} />}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
+          {/* Asset — the crypto asset used for the withdrawal balance */}
           <div className="flex flex-col gap-2">
             <label className="text-sm text-muted px-1">Asset</label>
             <div className="w-full bg-card/50 border border-border rounded-xl px-4 py-3.5 text-foreground opacity-70">
@@ -825,13 +900,29 @@ export function SendWithdrawView({ asset, onNavigate }: SendWithdrawViewProps) {
 
           {/* Recipient */}
           <div className="flex flex-col gap-2">
-            <label className="text-sm text-muted px-1">Recipient Address</label>
+            <label className="text-sm text-muted px-1">
+              {withdrawalMethod === 'paypal'
+                ? 'PayPal Email Address'
+                : withdrawalMethod === 'cashapp'
+                  ? 'Cash App $Cashtag'
+                  : withdrawalMethod === 'chime'
+                    ? 'Chime Email or Username'
+                    : 'Recipient Address'}
+            </label>
             <input
               type="text"
               value={address}
               onChange={(e) => setAddress(e.target.value)}
               className="w-full bg-card border border-border rounded-xl px-4 py-3.5 text-foreground focus:outline-none focus:border-primary transition-colors font-mono text-sm"
-              placeholder="Paste wallet address"
+              placeholder={
+                withdrawalMethod === 'paypal'
+                  ? 'e.g. name@example.com'
+                  : withdrawalMethod === 'cashapp'
+                    ? 'e.g. $YourCashtag'
+                    : withdrawalMethod === 'chime'
+                      ? 'e.g. Chime username'
+                      : 'Paste wallet address'
+              }
             />
           </div>
 
